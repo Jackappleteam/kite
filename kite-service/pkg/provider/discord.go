@@ -17,6 +17,7 @@ type DiscordProvider interface {
 	Role(ctx context.Context, guildID discord.GuildID, roleID discord.RoleID) (*discord.Role, error)
 	Member(ctx context.Context, guildID discord.GuildID, userID discord.UserID) (*discord.Member, error)
 	Message(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID) (*discord.Message, error)
+	Messages(ctx context.Context, channelID discord.ChannelID, limit uint) ([]discord.Message, error)
 
 	CreateInteractionResponse(ctx context.Context, interactionID discord.InteractionID, interactionToken string, response api.InteractionResponse) (*InteractionResponseResource, error)
 	EditInteractionResponse(ctx context.Context, applicationID discord.AppID, token string, response api.EditInteractionResponseData) (*discord.Message, error)
@@ -27,10 +28,9 @@ type DiscordProvider interface {
 	CreateMessage(ctx context.Context, channelID discord.ChannelID, message api.SendMessageData) (*discord.Message, error)
 	EditMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, message api.EditMessageData) (*discord.Message, error)
 	DeleteMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error
+	BulkDeleteMessages(ctx context.Context, channelID discord.ChannelID, messageIDs []discord.MessageID, reason api.AuditLogReason) error
 	CreateMessageReaction(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, emoji discord.APIEmoji) error
 	DeleteMessageReaction(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, emoji discord.APIEmoji) error
-	PinMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error
-	UnpinMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error
 	BanMember(ctx context.Context, guildID discord.GuildID, userID discord.UserID, data api.BanData) error
 	UnbanMember(ctx context.Context, guildID discord.GuildID, userID discord.UserID, reason api.AuditLogReason) error
 	KickMember(ctx context.Context, guildID discord.GuildID, userID discord.UserID, reason api.AuditLogReason) error
@@ -49,14 +49,8 @@ type DiscordProvider interface {
 	EditRole(ctx context.Context, guildID discord.GuildID, roleID discord.RoleID, data api.ModifyRoleData) (*discord.Role, error)
 	DeleteRole(ctx context.Context, guildID discord.GuildID, roleID discord.RoleID) error
 
-	UpdateVoiceState(ctx context.Context, guildID discord.GuildID, channelID discord.ChannelID, selfMute bool, selfDeaf bool) error
-	UpdatePresence(ctx context.Context, status discord.Status, activity discord.Activity) error
-
 	HasCreatedInteractionResponse(ctx context.Context, interactionID discord.InteractionID) (bool, error)
-	// MarkInteractionResponded is for interactions a previous execution
-	// already responded to, e.g. before a durable sleep.
-	MarkInteractionResponded(interactionID discord.InteractionID)
-	AutoDeferInteraction(ctx context.Context, interactionID discord.InteractionID, interactionToken string, response api.InteractionResponse)
+	AutoDeferInteraction(ctx context.Context, interactionID discord.InteractionID, interactionToken string, flags discord.MessageFlags)
 }
 
 type InteractionResponseResource struct {
@@ -95,6 +89,10 @@ func (p *MockDiscordProvider) Member(ctx context.Context, guildID discord.GuildI
 }
 
 func (p *MockDiscordProvider) Message(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID) (*discord.Message, error) {
+	return nil, nil
+}
+
+func (p *MockDiscordProvider) Messages(ctx context.Context, channelID discord.ChannelID, limit uint) ([]discord.Message, error) {
 	return nil, nil
 }
 
@@ -139,19 +137,15 @@ func (p *MockDiscordProvider) DeleteMessage(
 	return nil
 }
 
+func (p *MockDiscordProvider) BulkDeleteMessages(ctx context.Context, channelID discord.ChannelID, messageIDs []discord.MessageID, reason api.AuditLogReason) error {
+	return nil
+}
+
 func (p *MockDiscordProvider) CreateMessageReaction(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, emoji discord.APIEmoji) error {
 	return nil
 }
 
 func (p *MockDiscordProvider) DeleteMessageReaction(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, emoji discord.APIEmoji) error {
-	return nil
-}
-
-func (p *MockDiscordProvider) PinMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
-	return nil
-}
-
-func (p *MockDiscordProvider) UnpinMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
 	return nil
 }
 
@@ -224,19 +218,9 @@ func (p *MockDiscordProvider) DeleteRole(ctx context.Context, guildID discord.Gu
 	return nil
 }
 
-func (p *MockDiscordProvider) UpdateVoiceState(ctx context.Context, guildID discord.GuildID, channelID discord.ChannelID, selfMute bool, selfDeaf bool) error {
-	return nil
-}
-
-func (p *MockDiscordProvider) UpdatePresence(ctx context.Context, status discord.Status, activity discord.Activity) error {
-	return nil
-}
-
-func (p *MockDiscordProvider) MarkInteractionResponded(interactionID discord.InteractionID) {}
-
 func (p *MockDiscordProvider) HasCreatedInteractionResponse(ctx context.Context, interactionID discord.InteractionID) (bool, error) {
 	return false, nil
 }
 
-func (p *MockDiscordProvider) AutoDeferInteraction(ctx context.Context, interactionID discord.InteractionID, interactionToken string, response api.InteractionResponse) {
+func (p *MockDiscordProvider) AutoDeferInteraction(ctx context.Context, interactionID discord.InteractionID, interactionToken string, flags discord.MessageFlags) {
 }

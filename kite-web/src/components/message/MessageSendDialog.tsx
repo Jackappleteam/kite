@@ -20,12 +20,6 @@ import { useMessageInstanceCreateMutation } from "@/lib/api/mutations";
 import { useAppId, useMessageId } from "@/lib/hooks/params";
 import { toast } from "sonner";
 import { ScrollArea } from "../ui/scroll-area";
-import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
-
-// Mirrors maxFlowInstances in the API.
-const maxFlowInstances = 100;
-
-type Tab = "manual" | "flow";
 
 export default function MessageSendDialog({
   children,
@@ -36,14 +30,7 @@ export default function MessageSendDialog({
   const [guildId, setGuildId] = useState<string | null>(null);
   const [channelId, setChannelId] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<Tab>("manual");
-
-  const manualInstances = useMessageInstances();
-  const flowInstances = useMessageInstances({
-    sentBy: "flow",
-    enabled: open && tab === "flow",
-  });
-  const instances = tab === "flow" ? flowInstances : manualInstances;
+  const instances = useMessageInstances();
   const createMutation = useMessageInstanceCreateMutation(
     useAppId(),
     useMessageId()
@@ -82,11 +69,6 @@ export default function MessageSendDialog({
             Send the message to the selected channel. The bot must be in the
             server and have the &quot;Manage Webhooks&quot; permission.
           </DialogDescription>
-          <DialogDescription>
-            Messages you already sent don&apos;t change when you save the
-            template. Click Update to apply your saved changes, including button
-            flows, to them.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col sm:flex-row gap-2 overflow-x-hidden">
@@ -105,16 +87,6 @@ export default function MessageSendDialog({
         </div>
 
         <Separator />
-        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-          <TabsList className="w-full">
-            <TabsTrigger value="manual" className="flex-1">
-              Sent from here
-            </TabsTrigger>
-            <TabsTrigger value="flow" className="flex-1">
-              Sent by flows
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
         <ScrollArea className="overflow-y-hidden max-h-64 pr-3">
           <div className="flex flex-col space-y-5">
             {instances?.map((instance) => (
@@ -123,16 +95,9 @@ export default function MessageSendDialog({
                 instance={instance!}
               />
             ))}
-            {tab === "flow" && instances?.length === maxFlowInstances && (
-              <div className="text-muted-foreground text-center text-sm font-light">
-                Only the {maxFlowInstances} newest messages are shown.
-              </div>
-            )}
             {instances?.length === 0 && (
               <div className="text-muted-foreground text-center text-sm font-light">
-                {tab === "flow"
-                  ? "No flow has sent this message yet. Ephemeral messages aren't listed because they can't be updated."
-                  : "There are no instances of this message yet."}
+                There are no instances of this message yet.
               </div>
             )}
           </div>

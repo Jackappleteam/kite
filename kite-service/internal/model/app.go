@@ -1,7 +1,6 @@
 package model
 
 import (
-	"slices"
 	"time"
 
 	"github.com/diamondburned/arikawa/v3/utils/ws"
@@ -107,17 +106,7 @@ func (r AppGatewayRequirements) NeedsGuildMessageReactions() bool {
 	return false
 }
 
-// AppDiscordStatus holds the statuses an app can show. ActiveID picks the one
-// shown when rotation is off, otherwise the gateway cycles through all of them.
 type AppDiscordStatus struct {
-	Statuses      []AppDiscordStatusEntry `json:"statuses,omitempty"`
-	ActiveID      string                  `json:"active_id,omitempty"`
-	RotateEnabled bool                    `json:"rotate_enabled,omitempty"`
-}
-
-type AppDiscordStatusEntry struct {
-	ID            string `json:"id"`
-	Label         string `json:"label,omitempty"`
 	Status        string `json:"status,omitempty"`
 	ActivityType  int    `json:"activity_type,omitempty"`
 	ActivityName  string `json:"activity_name,omitempty"`
@@ -134,36 +123,11 @@ func (s *AppDiscordStatus) Equals(other *AppDiscordStatus) bool {
 		return false
 	}
 
-	return s.ActiveID == other.ActiveID &&
-		s.RotateEnabled == other.RotateEnabled &&
-		slices.Equal(s.Statuses, other.Statuses)
-}
-
-// ActiveEntry returns the entry matching ActiveID, falling back to the first
-// one if it doesn't match any.
-func (s *AppDiscordStatus) ActiveEntry() *AppDiscordStatusEntry {
-	if s == nil || len(s.Statuses) == 0 {
-		return nil
-	}
-
-	for i := range s.Statuses {
-		if s.Statuses[i].ID == s.ActiveID {
-			return &s.Statuses[i]
-		}
-	}
-
-	return &s.Statuses[0]
-}
-
-// Rotates reports whether the app cycles through more than one status.
-func (s *AppDiscordStatus) Rotates() bool {
-	return s != nil && s.RotateEnabled && len(s.Statuses) > 1
-}
-
-// RotationEntry returns the entry to show at the given time when rotating. It
-// advances once per minute without keeping any state.
-func (s *AppDiscordStatus) RotationEntry(t time.Time) *AppDiscordStatusEntry {
-	return &s.Statuses[int(t.Unix()/60)%len(s.Statuses)]
+	return s.Status == other.Status &&
+		s.ActivityType == other.ActivityType &&
+		s.ActivityName == other.ActivityName &&
+		s.ActivityState == other.ActivityState &&
+		s.ActivityURL == other.ActivityURL
 }
 
 type AppCollaboratorRole string

@@ -2,10 +2,7 @@ import { Edge, Node, XYPosition } from "@xyflow/react";
 import { humanId } from "human-id";
 import { useMemo } from "react";
 import { ZodSchema } from "zod";
-import { Features } from "../types/wire.gen";
 import { getUniqueId } from "../utils";
-import { FlowContextType } from "./context";
-import { getComponentHandleIds } from "./resume";
 import {
   nodeActionAiChatCompletionDataSchema,
   nodeActionAiWebSearchCompletionDataSchema,
@@ -26,13 +23,13 @@ import {
   nodeActionMemberRoleRemoveDataSchema,
   nodeActionMemberTimeoutDataSchema,
   nodeActionMemberUnbanDataSchema,
+  nodeActionMessageBulkDeleteDataSchema,
   nodeActionMessageCreateDataSchema,
   nodeActionMessageDeleteDataSchema,
   nodeActionMessageEditDataSchema,
   nodeActionMessageGetDataSchema,
   nodeActionMessageReactionCreateDataSchema,
   nodeActionMessageReactionDeleteDataSchema,
-  nodeActionMessagePinDataSchema,
   nodeActionPrivateMessageCreateDataSchema,
   nodeActionRandomGenerateDataSchema,
   nodeActionResponseCreateDataSchema,
@@ -48,21 +45,11 @@ import {
   nodeActionVariableDeleteSchema,
   nodeActionVariableGetSchema,
   nodeActionVariableSetSchema,
-  nodeActionVoiceChannelJoinDataSchema,
-  nodeActionVoiceChannelLeaveDataSchema,
-  nodeActionStatusSetDataSchema,
-  nodeConditionChannelDataSchema,
   nodeConditionCompareDataSchema,
   nodeConditionItemCompareDataSchema,
-  nodeConditionItemIdDataSchema,
-  nodeConditionItemUserDataSchema,
-  nodeConditionRoleDataSchema,
-  nodeConditionUserDataSchema,
-  nodeControlErrorHandlerDataSchema,
   nodeControlLoopDataSchema,
   nodeControlSleepDataSchema,
   NodeData,
-  nodeEmptyDataSchema,
   nodeEntryCommandDataSchema,
   nodeEntryComponentButtonDataSchema,
   nodeEntryEventDataSchema,
@@ -80,6 +67,7 @@ import {
   nodeActionForumPostCreateResultSchema,
   nodeActionGuildGetResultSchema,
   nodeActionMemberGetResultSchema,
+  nodeActionMessageBulkDeleteResultSchema,
   nodeActionMessageCreateResultSchema,
   nodeActionMessageEditResultSchema,
   nodeActionMessageGetResultSchema,
@@ -107,17 +95,9 @@ export interface NodeValues {
   dataSchema?: ZodSchema;
   dataFields: string[];
   resultSchema?: ZodSchema;
-  // IDs of the source handles edges can be drawn from. Defaults to
-  // ["default"]. Owned children are connected with fixed edges instead.
-  // Message blocks also get one per button or select menu in their message.
-  outputs?: string[];
-  // Flow types the block can be used in. Blocks listed in the block explorer
-  // otherwise take them from their section.
-  contexts?: FlowContextType[];
+  ownsChildren?: boolean;
   fixed?: boolean;
   creditsCost?: number | ((data: NodeData) => number);
-  // The block fails when the app doesn't have this feature
-  premiumFeature?: keyof Features;
 }
 
 export const nodeTypes: Record<string, NodeValues> = {
@@ -129,7 +109,6 @@ export const nodeTypes: Record<string, NodeValues> = {
       "Command entry. Drop different actions and options here!",
     dataSchema: nodeEntryCommandDataSchema,
     dataFields: ["name", "description"],
-    contexts: ["command"],
     fixed: true,
   },
   entry_event: {
@@ -139,8 +118,7 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultDescription:
       "Listens for an event to trigger the flow. Drop different actions here!",
     dataSchema: nodeEntryEventDataSchema,
-    dataFields: ["event_type", "event_schedule_cron", "description"],
-    contexts: ["event_discord", "event_schedule"],
+    dataFields: ["event_type", "description"],
     fixed: true,
   },
   entry_component_button: {
@@ -151,7 +129,6 @@ export const nodeTypes: Record<string, NodeValues> = {
       "This gets triggered when a user clicks the button. Drop different actions here!",
     dataSchema: nodeEntryComponentButtonDataSchema,
     dataFields: [],
-    contexts: ["component_button", "component_select_menu"],
     fixed: true,
   },
   action_response_create: {
@@ -269,6 +246,23 @@ export const nodeTypes: Record<string, NodeValues> = {
     ],
     creditsCost: 1,
   },
+  action_message_bulk_delete: {
+    color: actionColor,
+    icon: "message-circle-x",
+    defaultTitle: "Bulk delete channel messages",
+    defaultDescription:
+      "Bot deletes multiple recent messages in a channel at once",
+    dataSchema: nodeActionMessageBulkDeleteDataSchema,
+    resultSchema: nodeActionMessageBulkDeleteResultSchema,
+    dataFields: [
+      "channel_target",
+      "user_target",
+      "message_bulk_delete_count",
+      "audit_log_reason",
+      "custom_label",
+    ],
+    creditsCost: 1,
+  },
   action_message_reaction_create: {
     color: actionColor,
     icon: "smile-plus",
@@ -297,34 +291,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     ],
     creditsCost: 1,
   },
-  action_message_pin: {
-    color: actionColor,
-    icon: "pin",
-    defaultTitle: "Pin channel message",
-    defaultDescription: "Bot pins a message in a channel",
-    dataSchema: nodeActionMessagePinDataSchema,
-    dataFields: [
-      "channel_target",
-      "message_target",
-      "audit_log_reason",
-      "custom_label",
-    ],
-    creditsCost: 1,
-  },
-  action_message_unpin: {
-    color: actionColor,
-    icon: "pin-off",
-    defaultTitle: "Unpin channel message",
-    defaultDescription: "Bot unpins a message in a channel",
-    dataSchema: nodeActionMessagePinDataSchema,
-    dataFields: [
-      "channel_target",
-      "message_target",
-      "audit_log_reason",
-      "custom_label",
-    ],
-    creditsCost: 1,
-  },
   action_member_ban: {
     color: actionColor,
     icon: "user-round-x",
@@ -332,7 +298,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultDescription: "Ban a member from the server",
     dataSchema: nodeActionMemberBanDataSchema,
     dataFields: [
-      "guild_target",
       "user_target",
       "member_ban_delete_message_duration_seconds",
       "audit_log_reason",
@@ -346,12 +311,7 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultTitle: "Unban member",
     defaultDescription: "Unban a member from the server",
     dataSchema: nodeActionMemberUnbanDataSchema,
-    dataFields: [
-      "guild_target",
-      "user_target",
-      "audit_log_reason",
-      "custom_label",
-    ],
+    dataFields: ["user_target", "audit_log_reason", "custom_label"],
     creditsCost: 1,
   },
   action_member_kick: {
@@ -360,12 +320,7 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultTitle: "Kick member",
     defaultDescription: "Kick a member from the server",
     dataSchema: nodeActionMemberKickDataSchema,
-    dataFields: [
-      "guild_target",
-      "user_target",
-      "audit_log_reason",
-      "custom_label",
-    ],
+    dataFields: ["user_target", "audit_log_reason", "custom_label"],
     creditsCost: 1,
   },
   action_member_timeout: {
@@ -375,7 +330,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultDescription: "Timeout a member in the server",
     dataSchema: nodeActionMemberTimeoutDataSchema,
     dataFields: [
-      "guild_target",
       "user_target",
       "member_timeout_duration_seconds",
       "audit_log_reason",
@@ -390,7 +344,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultDescription: "Edit a member in the server",
     dataSchema: nodeActionMemberEditDataSchema,
     dataFields: [
-      "guild_target",
       "user_target",
       "member_nick",
       "audit_log_reason",
@@ -405,7 +358,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultDescription: "Add a role to a member",
     dataSchema: nodeActionMemberRoleAddDataSchema,
     dataFields: [
-      "guild_target",
       "user_target",
       "role_target",
       "audit_log_reason",
@@ -420,7 +372,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultDescription: "Remove a role from a member",
     dataSchema: nodeActionMemberRoleRemoveDataSchema,
     dataFields: [
-      "guild_target",
       "user_target",
       "role_target",
       "audit_log_reason",
@@ -652,39 +603,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     ],
     creditsCost: 1,
   },
-  action_voice_channel_join: {
-    color: actionColor,
-    icon: "phone-call",
-    defaultTitle: "Join voice channel",
-    defaultDescription: "Bot joins a voice channel",
-    dataSchema: nodeActionVoiceChannelJoinDataSchema,
-    dataFields: [
-      "channel_target",
-      "voice_self_mute",
-      "voice_self_deaf",
-      "custom_label",
-    ],
-    creditsCost: 1,
-  },
-  action_voice_channel_leave: {
-    color: actionColor,
-    icon: "phone-off",
-    defaultTitle: "Leave voice channel",
-    defaultDescription: "Bot leaves its voice channel in a server",
-    dataSchema: nodeActionVoiceChannelLeaveDataSchema,
-    dataFields: ["guild_target", "custom_label"],
-    creditsCost: 1,
-  },
-  action_status_set: {
-    color: actionColor,
-    icon: "activity",
-    defaultTitle: "Set status",
-    defaultDescription: "Change the status and activity of the bot",
-    dataSchema: nodeActionStatusSetDataSchema,
-    dataFields: ["status_data", "custom_label"],
-    creditsCost: 1,
-    premiumFeature: "rotating_status",
-  },
   action_http_request: {
     color: actionColor,
     icon: "webhook",
@@ -774,7 +692,7 @@ export const nodeTypes: Record<string, NodeValues> = {
       "condition_allow_multiple",
       "custom_label",
     ],
-    outputs: [],
+    ownsChildren: true,
   },
   control_condition_item_compare: {
     color: controlColor,
@@ -789,19 +707,19 @@ export const nodeTypes: Record<string, NodeValues> = {
     icon: "user-search",
     defaultTitle: "User Condition",
     defaultDescription: "Run actions based on a user.",
-    dataSchema: nodeConditionUserDataSchema,
+    dataSchema: nodeConditionCompareDataSchema,
     dataFields: [
       "condition_user_base_value",
       "condition_allow_multiple",
       "custom_label",
     ],
-    outputs: [],
+    ownsChildren: true,
   },
   control_condition_item_user: {
     color: controlColor,
     icon: "circle-help",
     defaultTitle: "Match User",
-    dataSchema: nodeConditionItemUserDataSchema,
+    dataSchema: nodeConditionItemCompareDataSchema,
     defaultDescription: "Run actions if the user meets the criteria.",
     dataFields: ["condition_item_user_mode", "condition_item_user_value"],
   },
@@ -810,19 +728,19 @@ export const nodeTypes: Record<string, NodeValues> = {
     icon: "folder-search",
     defaultTitle: "Channel Condition",
     defaultDescription: "Run actions based on a channel.",
-    dataSchema: nodeConditionChannelDataSchema,
+    dataSchema: nodeConditionCompareDataSchema,
     dataFields: [
       "condition_channel_base_value",
       "condition_allow_multiple",
       "custom_label",
     ],
-    outputs: [],
+    ownsChildren: true,
   },
   control_condition_item_channel: {
     color: controlColor,
     icon: "circle-help",
     defaultTitle: "Match Channel",
-    dataSchema: nodeConditionItemIdDataSchema,
+    dataSchema: nodeConditionItemCompareDataSchema,
     defaultDescription: "Run actions if the channel meets the criteria.",
     dataFields: ["condition_item_channel_mode", "condition_item_channel_value"],
   },
@@ -831,19 +749,19 @@ export const nodeTypes: Record<string, NodeValues> = {
     icon: "bookmark",
     defaultTitle: "Role Condition",
     defaultDescription: "Run actions based on a role.",
-    dataSchema: nodeConditionRoleDataSchema,
+    dataSchema: nodeConditionCompareDataSchema,
     dataFields: [
       "condition_role_base_value",
       "condition_allow_multiple",
       "custom_label",
     ],
-    outputs: [],
+    ownsChildren: true,
   },
   control_condition_item_role: {
     color: controlColor,
     icon: "circle-help",
     defaultTitle: "Match Role",
-    dataSchema: nodeConditionItemIdDataSchema,
+    dataSchema: nodeConditionItemCompareDataSchema,
     defaultDescription: "Run actions if the role meets the criteria.",
     dataFields: ["condition_item_role_mode", "condition_item_role_value"],
   },
@@ -852,7 +770,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     icon: "circle-x",
     defaultTitle: "Else",
     defaultDescription: "Run actions if no other conditions are met.",
-    dataSchema: nodeEmptyDataSchema,
     dataFields: [],
     fixed: true,
   },
@@ -862,9 +779,8 @@ export const nodeTypes: Record<string, NodeValues> = {
     defaultTitle: "Handle Errors",
     defaultDescription:
       "Handle errors that occur in the flow after this block.",
-    dataSchema: nodeControlErrorHandlerDataSchema,
     dataFields: ["temporary_name", "custom_label"],
-    outputs: ["error", "default"],
+    ownsChildren: true,
   },
   control_loop: {
     color: controlColor,
@@ -873,14 +789,13 @@ export const nodeTypes: Record<string, NodeValues> = {
     dataSchema: nodeControlLoopDataSchema,
     defaultDescription: "Run a set of actions multiple times.",
     dataFields: ["loop_count", "custom_label"],
-    outputs: [],
+    ownsChildren: true,
   },
   control_loop_each: {
     color: controlColor,
     icon: "repeat-2",
     defaultTitle: "Each loop iteration",
     defaultDescription: "Run actions for each iteration of the loop.",
-    dataSchema: nodeEmptyDataSchema,
     dataFields: [],
     fixed: true,
   },
@@ -889,7 +804,6 @@ export const nodeTypes: Record<string, NodeValues> = {
     icon: "corner-down-right",
     defaultTitle: "After loop",
     defaultDescription: "Run actions after the loop has finished.",
-    dataSchema: nodeEmptyDataSchema,
     dataFields: [],
     fixed: true,
   },
@@ -898,9 +812,7 @@ export const nodeTypes: Record<string, NodeValues> = {
     icon: "log-out",
     defaultTitle: "Exit loop",
     defaultDescription: "Exit out of the loop.",
-    dataSchema: nodeEmptyDataSchema,
     dataFields: [],
-    outputs: [],
   },
   control_sleep: {
     color: controlColor,
@@ -976,145 +888,12 @@ const unknownNodeType: NodeValues = {
   dataFields: [],
 };
 
-export function isKnownNodeType(nodeType: string) {
-  return Object.hasOwn(nodeTypes, nodeType);
-}
-
 export function getNodeValues(nodeType: string): NodeValues {
-  return isKnownNodeType(nodeType) ? nodeTypes[nodeType] : unknownNodeType;
-}
-
-export function getNodeCreditsCost(
-  values: NodeValues,
-  data: NodeData
-): number | undefined {
-  return typeof values.creditsCost === "function"
-    ? values.creditsCost(data)
-    : values.creditsCost;
-}
-
-// The IDs of the outputs edges can start from. Message blocks also get one per
-// button or select menu in their message.
-export function getNodeOutputs(node: { type?: string; data: NodeData }) {
-  return [
-    ...(getNodeValues(node.type!).outputs ?? ["default"]),
-    ...getComponentHandleIds(node.data.message_data?.components ?? []),
-  ];
-}
-
-export function getNodeTitle(node: { type?: string; data: NodeData }) {
-  return node.data.custom_label || getNodeValues(node.type!).defaultTitle;
-}
-
-// The blocks an owner is created with and connected to, e.g. the items and
-// else branch of a condition.
-const ownedChildTypes = new Map<string, string[]>();
-
-export function getOwnedChildTypes(type: string) {
-  if (!ownedChildTypes.has(type)) {
-    ownedChildTypes.set(
-      type,
-      createNode(type, { x: 0, y: 0 })[0]
-        .slice(1)
-        .map((n) => n.type!)
-    );
+  const values = nodeTypes[nodeType];
+  if (!values) {
+    return unknownNodeType;
   }
-  return ownedChildTypes.get(type)!;
-}
-
-// Returns the IDs of the given blocks plus the blocks they own, e.g. the
-// branches of a condition, which are deleted, copied and removed with them.
-export function withOwnedNodes(
-  ids: string[],
-  nodes: Node<NodeData>[],
-  edges: Edge[]
-): Set<string> {
-  const types = new Map(nodes.map((n) => [n.id, n.type!]));
-  const targets = new Map<string, string[]>();
-  for (const edge of edges) {
-    if (!targets.has(edge.source)) targets.set(edge.source, []);
-    targets.get(edge.source)!.push(edge.target);
-  }
-  const res = new Set<string>();
-
-  const add = (id: string) => {
-    if (!types.has(id) || res.has(id)) return;
-    res.add(id);
-
-    const owned = getOwnedChildTypes(types.get(id)!);
-    (targets.get(id) ?? [])
-      .filter((target) => owned.includes(types.get(target)!))
-      .forEach(add);
-  };
-  ids.forEach(add);
-
-  return res;
-}
-
-// Returns the blocks the editor deletes when the given ones are deleted: the
-// blocks they own go with them, while fixed blocks, e.g. the else branch of a
-// condition, are only deleted together with the block they belong to.
-export function getDeletedNodeIds(
-  ids: string[],
-  nodes: Node<NodeData>[],
-  edges: Edge[]
-) {
-  const types = new Map(nodes.map((n) => [n.id, n.type!]));
-  return withOwnedNodes(
-    ids.filter((id) => !getNodeValues(types.get(id) ?? "").fixed),
-    nodes,
-    edges
-  );
-}
-
-let ownerTypes: Map<string, string[]> | undefined;
-
-// The types of the blocks that own blocks of the given type, e.g. the four
-// condition types for the else branch.
-export function getOwnerTypes(type: string) {
-  if (!ownerTypes) {
-    ownerTypes = new Map();
-    for (const owner of Object.keys(nodeTypes)) {
-      for (const owned of getOwnedChildTypes(owner)) {
-        ownerTypes.set(owned, [...(ownerTypes.get(owned) ?? []), owner]);
-      }
-    }
-  }
-  return ownerTypes.get(type) ?? [];
-}
-
-// No handle and "default" both mean a block's default output.
-export function normalizeHandle(handle?: string | null) {
-  return handle && handle !== "default" ? handle : null;
-}
-
-// Edges to the blocks a block owns are fixed, the rest can be deleted in the
-// editor like hand-drawn ones. Blocks that name their outputs, like the error
-// handler, render their default output with the ID "default", so edges have
-// to name it too.
-export function createEdge(
-  source: Node<NodeData>,
-  target: Node<NodeData>,
-  handle?: string | null
-): Edge {
-  const owned = getOwnedChildTypes(source.type!).includes(target.type!);
-  const namesDefault = getNodeValues(source.type!).outputs?.includes("default");
-  return {
-    id: getEdgeId(),
-    source: source.id,
-    target: target.id,
-    sourceHandle: normalizeHandle(handle) ?? (namesDefault ? "default" : null),
-    type: owned ? "fixed" : "delete_button",
-  };
-}
-
-// Options connect into the entry of commands and event listeners, nothing else
-// connects into an entry, and nothing connects into an option.
-export function canConnect(sourceType: string, targetType: string) {
-  if (sourceType.startsWith("option_")) {
-    return targetType === "entry_command" || targetType === "entry_event";
-  }
-  return !targetType.startsWith("entry_") && !targetType.startsWith("option_");
+  return values;
 }
 
 export function useNodeValues(nodeType: string): NodeValues {

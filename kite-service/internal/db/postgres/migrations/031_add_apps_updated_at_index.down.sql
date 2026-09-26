@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY IF EXISTS apps_updated_at;

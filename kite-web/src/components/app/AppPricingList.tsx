@@ -15,7 +15,7 @@ import {
   useLemonSqueezyCheckout,
   useSubscriptionPlanSwitch,
 } from "@/lib/hooks/lemonsqueezy";
-import { formatInterval, formatNumber } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils";
 import ConfirmDialog from "../common/ConfirmDialog";
 
 export default function AppPricingList() {
@@ -128,24 +128,6 @@ export default function AppPricingList() {
                   {pricing.feature_max_event_listeners} Event Listeners
                 </h3>
               </span>
-              <span className="flex">
-                <CheckIcon className="text-green-500" />{" "}
-                <h3 className="ml-2">
-                  {/* 0 means no limit, like every other limit. */}
-                  {pricing.feature_max_scheduled_event_listeners ||
-                    "Unlimited"}{" "}
-                  Schedules, every{" "}
-                  {formatInterval(
-                    pricing.feature_min_schedule_interval_seconds
-                  )}
-                </h3>
-              </span>
-              {pricing.feature_rotating_status && (
-                <span className="flex">
-                  <CheckIcon className="text-green-500" />{" "}
-                  <h3 className="ml-2">Rotating & flow-controlled status</h3>
-                </span>
-              )}
               <span className="flex">
                 <CheckIcon className="text-green-500" />{" "}
                 <h3 className="ml-2">

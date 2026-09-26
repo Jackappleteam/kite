@@ -7,8 +7,7 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { PaperclipIcon, TrashIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
-import { useDocumentStoreApi, useRootId } from "@/lib/message/state";
-import { MessageNode } from "@/lib/message/document";
+import { useCurrentMessage } from "@/lib/message/state";
 
 export default function MessageAttachment({
   attachmentIndex,
@@ -17,8 +16,7 @@ export default function MessageAttachment({
   attachmentIndex: number;
   assetId: string;
 }) {
-  const rootId = useRootId();
-  const store = useDocumentStoreApi();
+  const deleteAttachment = useCurrentMessage((state) => state.deleteAttachment);
 
   const appId = useAppId();
 
@@ -31,11 +29,8 @@ export default function MessageAttachment({
   });
 
   const remove = useCallback(() => {
-    const root = store.getState().nodes[rootId] as MessageNode;
-    store.getState().update<MessageNode>(rootId, {
-      attachments: root.attachments.filter((_, i) => i !== attachmentIndex),
-    });
-  }, [store, rootId, attachmentIndex]);
+    deleteAttachment(attachmentIndex);
+  }, [deleteAttachment, attachmentIndex]);
 
   const isImage = useMemo(
     () => asset?.content_type?.startsWith("image/"),

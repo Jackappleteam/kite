@@ -190,8 +190,4 @@ type BillingPlanConfig struct {
 	FeatureMaxMessages          int  `toml:"feature_max_messages"`
 	FeatureMaxEventListeners    int  `toml:"feature_max_event_listeners"`
 	FeaturePrioritySupport      bool `toml:"feature_priority_support"`
-	FeatureRotatingStatus       bool `toml:"feature_rotating_status"`
-
-	FeatureMaxScheduledEventListeners int `toml:"feature_max_scheduled_event_listeners"`
-	FeatureMinScheduleIntervalSeconds int `toml:"feature_min_schedule_interval_seconds"`
 }

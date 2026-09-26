@@ -2,7 +2,6 @@ package flow
 
 import (
 	"context"
-	"time"
 
 	"github.com/kitecloud/kite/kite-service/pkg/provider"
 )
@@ -33,7 +32,6 @@ type ResumePointType string
 const (
 	ResumePointTypeModal             ResumePointType = "modal"
 	ResumePointTypeMessageComponents ResumePointType = "message_components"
-	ResumePointTypeTimer             ResumePointType = "timer"
 )
 
 type ResumePoint struct {
@@ -41,8 +39,4 @@ type ResumePoint struct {
 	Type   ResumePointType
 	NodeID string
 	State  FlowContextState
-
-	// ResumeAt and InteractionToken are only set for timers.
-	ResumeAt         time.Time
-	InteractionToken string
 }

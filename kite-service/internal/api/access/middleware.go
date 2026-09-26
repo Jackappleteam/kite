@@ -93,13 +93,17 @@ func (m *AccessManager) MessageAccess(next handler.HandlerFunc) handler.HandlerF
 		messageID := c.Param("messageID")
 		appID := c.Param("appID")
 
-		// Scoped in the query so another app's message is simply not found.
-		message, err := m.messageStore.Message(c.Context(), appID, messageID)
+		message, err := m.messageStore.Message(c.Context(), messageID)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				return handler.ErrNotFound("unknown_message", "Message not found")
 			}
 			return err
+		}
+
+		// We assume that app access has already been checked
+		if message.AppID != appID {
+			return handler.ErrForbidden("missing_access", "Access to message missing")
 		}
 
 		c.Message = message

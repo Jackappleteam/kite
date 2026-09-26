@@ -17,15 +17,13 @@ import (
 	"github.com/kitecloud/kite/kite-service/pkg/flow"
 	"github.com/kitecloud/kite/kite-service/pkg/plugin"
 	"github.com/kitecloud/kite/kite-service/pkg/provider"
-	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go"
 	"gopkg.in/guregu/null.v4"
 )
 
 type Env struct {
 	Config               EngineConfig
 	AppStore             store.AppStore
-	FeatureProvider      FeatureProvider
-	BlockRateLimiter     *BlockRateLimiter
 	LogStore             store.LogStore
 	UsageStore           store.UsageStore
 	MessageStore         store.MessageStore
@@ -57,7 +55,7 @@ func (s Env) flowProviders(appID string, session *state.State, links entityLinks
 	}
 
 	return flow.FlowProviders{
-		Discord: NewDiscordProvider(appID, s.AppStore, s.FeatureProvider, s.BlockRateLimiter, session),
+		Discord: NewDiscordProvider(appID, s.AppStore, session),
 		Roblox:  NewRobloxProvider(s.HttpClient),
 		Log: NewLogProvider(
 			appID,
@@ -66,11 +64,10 @@ func (s Env) flowProviders(appID string, session *state.State, links entityLinks
 		),
 		HTTP:            NewHTTPProvider(s.HttpClient),
 		AI:              aiProvider,
-		MessageTemplate: NewMessageTemplateProvider(appID, s.MessageStore, s.MessageInstanceStore),
-		Variable:        NewVariableProvider(appID, s.VariableValueStore),
+		MessageTemplate: NewMessageTemplateProvider(s.MessageStore, s.MessageInstanceStore),
+		Variable:        NewVariableProvider(s.VariableValueStore),
 		ResumePoint: NewResumePointProvider(
 			s.ResumePointStore,
-			s.TokenCrypt,
 			appID,
 			links,
 		),
@@ -87,50 +84,44 @@ func (s Env) flowContext(
 ) *flow.FlowContext {
 	providers := s.flowProviders(appID, session, links)
 
-	var data flow.FlowContextData
-	var evalCtx eval.Context
+	var fCtx *flow.FlowContext
 
 	switch e := event.(type) {
 	case *gateway.InteractionCreateEvent:
-		data = &InteractionData{
-			interaction: &e.InteractionEvent,
-		}
-		evalCtx = eval.NewContextFromInteraction(&e.InteractionEvent, session)
+		fCtx = flow.NewContext(
+			ctx,
+			30*time.Second,
+			&InteractionData{
+				interaction: &e.InteractionEvent,
+			},
+			providers,
+			flow.FlowContextLimits{
+				MaxStackDepth: s.Config.MaxStackDepth,
+				MaxOperations: s.Config.MaxOperations,
+				MaxCredits:    s.Config.MaxCredits,
+			},
+			eval.NewContextFromInteraction(&e.InteractionEvent, session),
+			state,
+		)
 	default:
-		data = &EventData{
-			event: event,
-		}
-		evalCtx = eval.NewContextFromEvent(event, session)
+		fCtx = flow.NewContext(
+			ctx,
+			30*time.Second,
+			&EventData{
+				event: event,
+			},
+			providers,
+			flow.FlowContextLimits{
+				MaxStackDepth: s.Config.MaxStackDepth,
+				MaxOperations: s.Config.MaxOperations,
+				MaxCredits:    s.Config.MaxCredits,
+			},
+			eval.NewContextFromEvent(event, session),
+			state,
+		)
 	}
 
-	if state != nil {
-		earlier := make([]eval.Context, len(state.Triggers))
-		for i := range state.Triggers {
-			earlier[i] = triggerEvalContext(&state.Triggers[i], session)
-		}
-		evalCtx.SetResumeContext(earlier)
-	}
-
-	return flow.NewContext(
-		ctx,
-		30*time.Second,
-		data,
-		providers,
-		flow.FlowContextLimits{
-			MaxStackDepth: s.Config.MaxStackDepth,
-			MaxOperations: s.Config.MaxOperations,
-			MaxCredits:    s.Config.MaxCredits,
-		},
-		evalCtx,
-		state,
-	)
-}
-
-func triggerEvalContext(trigger *flow.FlowTrigger, session *state.State) eval.Context {
-	if trigger.Interaction != nil {
-		return eval.NewContextFromInteraction(trigger.Interaction, session)
-	}
-	return eval.NewContextFromEvent(trigger.Event, session)
+	return fCtx
 }
 
 func (s Env) executeFlowEvent(
@@ -165,44 +156,12 @@ func (s Env) executeFlowEvent(
 		return
 	}
 
-	s.finishFlowRun(appID, links, fCtx, node.Execute(fCtx), "Failed to execute flow event")
-}
-
-// executeFlowAfterSleep continues a flow after the durable sleep in node. event
-// is the interaction or event the flow ran with before it suspended.
-func (s Env) executeFlowAfterSleep(
-	ctx context.Context,
-	appID string,
-	node *flow.CompiledFlowNode,
-	session *state.State,
-	event gateway.Event,
-	links entityLinks,
-	state *flow.FlowContextState,
-) {
-	defer s.recoverPanic(appID, links)
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	fCtx := s.flowContext(ctx, appID, session, event, links, state)
-	defer fCtx.Cancel()
-
-	// The sleep acknowledged the interaction before suspending, so responses
-	// have to be follow-ups.
-	if interaction := fCtx.Data.Interaction(); interaction != nil {
-		fCtx.Discord.MarkInteractionResponded(interaction.ID)
-	}
-
-	s.finishFlowRun(appID, links, fCtx, node.ResumeAfterSleep(fCtx), "Failed to execute flow after sleep")
-}
-
-// finishFlowRun records the error and usage of a flow execution.
-func (s Env) finishFlowRun(appID string, links entityLinks, fCtx *flow.FlowContext, err error, errMessage string) {
+	err = node.Execute(fCtx)
 	if err != nil {
 		s.createLogEntry(
 			appID,
 			model.LogLevelError,
-			fmt.Sprintf("%s: %v", errMessage, err),
+			fmt.Sprintf("Failed to execute flow event: %v", err),
 			links,
 		)
 	}

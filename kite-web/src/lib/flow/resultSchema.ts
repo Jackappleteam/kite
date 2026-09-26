@@ -59,6 +59,10 @@ export const nodeActionPrivateMessageCreateResultSchema = messageResultSchema;
 
 export const nodeActionMessageGetResultSchema = messageResultSchema;
 
+export const nodeActionMessageBulkDeleteResultSchema = z.object({
+  deleted_count: z.number().describe("The number of messages that were deleted"),
+});
+
 export const nodeActionUserGetResultSchema = userResultSchema;
 
 export const nodeActionMemberGetResultSchema = memberResultSchema;

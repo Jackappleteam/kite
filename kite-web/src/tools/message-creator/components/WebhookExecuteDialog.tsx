@@ -11,7 +11,7 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { SendIcon } from "lucide-react";
 import { toast } from "sonner";
-import { getMessage, useDocumentStoreApi } from "@/lib/message/state";
+import { useCurrentMessageStore } from "../state/message";
 
 export default function WebhookExecuteDialog() {
   const {
@@ -22,7 +22,6 @@ export default function WebhookExecuteDialog() {
     messageId,
     setMessageId,
   } = useCurrentWebhookStore(useShallow((state) => state));
-  const messageStore = useDocumentStoreApi();
 
   async function sendMessage(edit: boolean) {
     if (!webhookUrl) return;
@@ -30,8 +29,7 @@ export default function WebhookExecuteDialog() {
     try {
       let method = "POST";
       let url = new URL(webhookUrl);
-      // with_components lets webhooks that aren't owned by an app send components.
-      url.search = "?wait=true&with_components=true";
+      url.search = "?wait=true";
 
       if (edit) {
         url.pathname += `/messages/${messageId}`;
@@ -47,7 +45,7 @@ export default function WebhookExecuteDialog() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(getMessage(messageStore)),
+        body: JSON.stringify(useCurrentMessageStore.getState()),
       });
 
       if (resp.status >= 300) {

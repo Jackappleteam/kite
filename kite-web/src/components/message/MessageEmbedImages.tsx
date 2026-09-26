@@ -1,44 +1,52 @@
-import CollapsibleSection from "./MessageCollapsibleSection";
-import { useDocument, useDocumentStoreApi } from "@/lib/message/state";
 import { useShallow } from "zustand/react/shallow";
-import { EmbedNode, NodeId } from "@/lib/message/document";
-import { nodeField, nodeScope } from "@/lib/message/validationStore";
+import CollapsibleSection from "./MessageCollapsibleSection";
+import { useCurrentMessage } from "@/lib/message/state";
 import MessageInput from "./MessageInput";
 
-export default function MessageEmbedImages({ embedId }: { embedId: NodeId }) {
-  const embed = useDocument(
-    useShallow((state) => {
-      const node = state.nodes[embedId] as EmbedNode | undefined;
-      return { image: node?.image, thumbnail: node?.thumbnail };
-    })
+export default function MessageEmbedImages({
+  embedId,
+  embedIndex,
+}: {
+  embedId: number;
+  embedIndex: number;
+}) {
+  const [imageUrl, setImageUrl] = useCurrentMessage(
+    useShallow((state) => [
+      state.embeds[embedIndex]?.image?.url,
+      state.setEmbedImageUrl,
+    ])
   );
-  const { update } = useDocumentStoreApi().getState();
+  const [thumbnailUrl, setThumbnailUrl] = useCurrentMessage(
+    useShallow((state) => [
+      state.embeds[embedIndex]?.thumbnail?.url,
+      state.setEmbedThumbnailUrl,
+    ])
+  );
 
   return (
     <CollapsibleSection
       title="Images"
       size="md"
-      validation={nodeScope<EmbedNode>(embedId, ["image", "thumbnail"])}
+      valiationPathPrefix={[
+        `embeds.${embedIndex}.image`,
+        `embeds.${embedIndex}.thumbnail`,
+      ]}
       className="space-y-3"
     >
       <MessageInput
         type="url"
         label="Image URL"
-        value={embed.image?.url || ""}
-        onChange={(url) =>
-          update<EmbedNode>(embedId, { image: url ? { url } : undefined })
-        }
-        validation={nodeField<EmbedNode>(embedId, "image.url")}
+        value={imageUrl || ""}
+        onChange={(v) => setImageUrl(embedIndex, v || undefined)}
+        validationPath={`embeds.${embedIndex}.image.url`}
         imageUpload
       />
       <MessageInput
         type="url"
         label="Thumbnail URL"
-        value={embed.thumbnail?.url || ""}
-        onChange={(url) =>
-          update<EmbedNode>(embedId, { thumbnail: url ? { url } : undefined })
-        }
-        validation={nodeField<EmbedNode>(embedId, "thumbnail.url")}
+        value={thumbnailUrl || ""}
+        onChange={(v) => setThumbnailUrl(embedIndex, v || undefined)}
+        validationPath={`embeds.${embedIndex}.thumbnail.url`}
         imageUpload
       />
     </CollapsibleSection>

@@ -23,14 +23,6 @@ type App struct {
 }
 
 type AppDiscordStatus struct {
-	Statuses      []AppDiscordStatusEntry `json:"statuses,omitempty"`
-	ActiveID      string                  `json:"active_id,omitempty"`
-	RotateEnabled bool                    `json:"rotate_enabled,omitempty"`
-}
-
-type AppDiscordStatusEntry struct {
-	ID            string `json:"id"`
-	Label         string `json:"label,omitempty"`
 	Status        string `json:"status,omitempty"`
 	ActivityType  int    `json:"activity_type,omitempty"`
 	ActivityName  string `json:"activity_name,omitempty"`
@@ -71,13 +63,7 @@ type AppStatusUpdateRequest struct {
 }
 
 func (req AppStatusUpdateRequest) Validate() error {
-	if req.DiscordStatus == nil {
-		return nil
-	}
-
-	return validation.ValidateStruct(req.DiscordStatus,
-		validation.Field(&req.DiscordStatus.Statuses, validation.Length(0, 10)),
-	)
+	return nil
 }
 
 type AppStatusUpdateResponse = App
@@ -105,15 +91,12 @@ func AppToWire(app *model.App) *App {
 
 	var status *AppDiscordStatus
 	if app.DiscordStatus != nil {
-		entries := make([]AppDiscordStatusEntry, len(app.DiscordStatus.Statuses))
-		for i, e := range app.DiscordStatus.Statuses {
-			entries[i] = AppDiscordStatusEntry(e)
-		}
-
 		status = &AppDiscordStatus{
-			Statuses:      entries,
-			ActiveID:      app.DiscordStatus.ActiveID,
-			RotateEnabled: app.DiscordStatus.RotateEnabled,
+			Status:        app.DiscordStatus.Status,
+			ActivityType:  app.DiscordStatus.ActivityType,
+			ActivityName:  app.DiscordStatus.ActivityName,
+			ActivityState: app.DiscordStatus.ActivityState,
+			ActivityURL:   app.DiscordStatus.ActivityURL,
 		}
 	}
 

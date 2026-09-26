@@ -10,9 +10,8 @@ import { useAppId } from "@/lib/hooks/params";
 import { parseMessageData } from "@/lib/message/schemaRestore";
 import {
   CurrentMessageStoreProvider,
-  getMessage,
   useCurrentFlowStore,
-  useDocumentStoreApi,
+  useCurrentMessageStore,
 } from "@/lib/message/state";
 import { ViewIcon } from "lucide-react";
 import {
@@ -43,7 +42,7 @@ function MessageEditorDialogInner({
 }) {
   const ignoreChange = useRef(false);
 
-  const messageStore = useDocumentStoreApi();
+  const messageStore = useCurrentMessageStore();
   const flowStore = useCurrentFlowStore();
 
   useEffect(() => {
@@ -51,7 +50,7 @@ function MessageEditorDialogInner({
       const data = parseMessageData(message);
 
       ignoreChange.current = true;
-      messageStore.getState().replaceAll(data);
+      messageStore.getState().replace(data);
       messageStore.temporal.getState().clear();
       ignoreChange.current = false;
     } catch (e) {
@@ -63,7 +62,8 @@ function MessageEditorDialogInner({
     (open: boolean) => {
       if (open || !message) return;
 
-      onClose(getMessage(messageStore));
+      const data = messageStore.getState();
+      onClose(data);
     },
     [message, onClose, messageStore]
   );
@@ -83,8 +83,7 @@ function MessageEditorDialogInner({
               <>
                 <div className="flex flex-auto overflow-y-hidden flex-col xl:flex-row h-full">
                   <ScrollArea className="flex flex-col xl:w-7/12 pt-3 pb-8 space-y-8 h-full px-3 md:px-5 lg:px-10">
-                    {/* Flows can't upload files, so messages sent from them can't have any. */}
-                    <MessageEditor disableFlowEditor disableAttachments />
+                    <MessageEditor disableFlowEditor />
                   </ScrollArea>
                   <div className="hidden xl:block py-5 w-5/12 h-full pr-5">
                     <MessageEditorPreview className="rounded-lg" />

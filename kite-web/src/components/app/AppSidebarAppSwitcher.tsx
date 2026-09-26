@@ -14,7 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useApp, useAppPlan, useApps } from "@/lib/hooks/api";
+import { useApp, useApps } from "@/lib/hooks/api";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useCallback } from "react";
@@ -26,7 +26,6 @@ export default function AppSidebarAppSwitcher() {
 
   const apps = useApps();
   const app = useApp();
-  const plan = useAppPlan();
 
   const setApp = useCallback(
     (appId: string) => {
@@ -55,7 +54,7 @@ export default function AppSidebarAppSwitcher() {
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">{app?.name}</span>
-                <span className="truncate text-xs">{plan?.title}</span>
+                <span className="truncate text-xs">Open Beta</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
             </SidebarMenuButton>

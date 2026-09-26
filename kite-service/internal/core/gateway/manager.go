@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"maps"
-	"slices"
 	"sync"
 	"time"
 
@@ -44,7 +42,7 @@ type GatewayManagerConfig struct {
 // Tune via gateway.start_interval. The trade is cold-start time against
 // outbound connection rate: at ~9k apps per cluster, 100ms means roughly 15
 // minutes to initiate them all, 10ms means about 90 seconds.
-const defaultStartInterval = 10 * time.Millisecond
+const defaultStartInterval = 100 * time.Millisecond
 
 type GatewayManager struct {
 	sync.Mutex
@@ -97,9 +95,6 @@ func (m *GatewayManager) Run(ctx context.Context) {
 		removeDanglingTicker := time.NewTicker(removeDanglingInterval)
 		defer removeDanglingTicker.Stop()
 
-		rotateStatusTicker := time.NewTicker(time.Minute)
-		defer rotateStatusTicker.Stop()
-
 		if err := m.populateGateways(ctx); err != nil {
 			slog.With("error", err).Error("failed to populate gateways")
 		}
@@ -115,10 +110,6 @@ func (m *GatewayManager) Run(ctx context.Context) {
 			case <-removeDanglingTicker.C:
 				if err := m.removeDeletedGateways(ctx); err != nil {
 					slog.With("error", err).Error("failed to remove deleted gateways")
-				}
-			case now := <-rotateStatusTicker.C:
-				if err := m.rotateStatuses(ctx, now); err != nil {
-					slog.With("error", err).Error("failed to rotate statuses")
 				}
 			}
 		}
@@ -232,35 +223,6 @@ func (m *GatewayManager) startGateways(ctx context.Context, apps []*model.App) e
 	return nil
 }
 
-// rotateStatuses updates the presence of every app that rotates its status, or
-// did until now. Features are only looked up for those apps, in one batch.
-func (m *GatewayManager) rotateStatuses(ctx context.Context, now time.Time) error {
-	m.Lock()
-	var gateways []*Gateway
-	var appIDs []string
-	for _, g := range m.gateways {
-		if g.currentApp().DiscordStatus.Rotates() || g.rotationEntryID != "" {
-			gateways = append(gateways, g)
-			appIDs = append(appIDs, g.appID)
-		}
-	}
-	m.Unlock()
-
-	if len(gateways) == 0 {
-		return nil
-	}
-
-	features, err := m.planManager.AppFeaturesForApps(ctx, appIDs)
-	if err != nil {
-		return fmt.Errorf("failed to get app features: %w", err)
-	}
-
-	for _, g := range gateways {
-		g.rotatePresence(ctx, now, features[g.appID].RotatingStatus)
-	}
-	return nil
-}
-
 // refreshIntents recomputes intents for apps whose event listeners or plugin
 // instances changed, reconnecting those whose required intent set moved.
 //
@@ -367,7 +329,7 @@ func (m *GatewayManager) addGateway(ctx context.Context, app *model.App) error {
 	defer m.Unlock()
 
 	if g, ok := m.gateways[app.ID]; ok {
-		if g.Session().GatewayIsAlive() {
+		if g.session.GatewayIsAlive() {
 			go g.Update(ctx, app)
 			return nil
 		}
@@ -406,26 +368,6 @@ func (m *GatewayManager) AppState(ctx context.Context, appID string) (store.AppS
 	return g, nil
 }
 
-// AppIDs returns the apps with a gateway on this cluster.
-func (m *GatewayManager) AppIDs() []string {
-	m.Lock()
-	defer m.Unlock()
-
-	return slices.Collect(maps.Keys(m.gateways))
-}
-
-func (m *GatewayManager) AppSession(ctx context.Context, appID string) (*state.State, error) {
-	m.Lock()
-	defer m.Unlock()
-
-	g, ok := m.gateways[appID]
-	if !ok {
-		return nil, store.ErrNotFound
-	}
-
-	return g.Session(), nil
-}
-
 func (m *GatewayManager) AppClient(ctx context.Context, appID string) (*api.Client, error) {
 	m.Lock()
 	defer m.Unlock()
@@ -435,5 +377,5 @@ func (m *GatewayManager) AppClient(ctx context.Context, appID string) (*api.Clie
 		return nil, store.ErrNotFound
 	}
 
-	return g.Session().Client, nil
+	return g.session.Client, nil
 }

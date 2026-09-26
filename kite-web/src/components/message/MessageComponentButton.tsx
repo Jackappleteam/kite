@@ -1,18 +1,20 @@
-import {
-  useDocumentStoreApi,
-  useNode,
-  useNodeActions,
-} from "@/lib/message/state";
-import { ButtonNode, NodeId } from "@/lib/message/document";
-import { MessageComponentButtonStyle } from "@/lib/message/schema";
-import { nodeField, nodeScope } from "@/lib/message/validationStore";
-import MessageNodeActions from "./MessageNodeActions";
+import { useCurrentFlow, useCurrentMessage } from "@/lib/message/state";
+import { useShallow } from "zustand/react/shallow";
 import { Card } from "../ui/card";
 import MessageCollapsibleSection from "./MessageCollapsibleSection";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  CopyIcon,
+  TrashIcon,
+} from "lucide-react";
 import MessageInput from "./MessageInput";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import MessageEmojiPicker from "./MessageEmojiPicker";
-import MessageComponentFlow from "./MessageComponentFlow";
+import FlowPreview from "../flow/FlowPreview";
+import FlowDialog from "../flow/FlowDialog";
+import { FlowData } from "@/lib/flow/dataSchema";
+import { getUniqueId } from "@/lib/utils";
 
 export const buttonColors = {
   1: "#5865F2",
@@ -22,28 +24,98 @@ export const buttonColors = {
   5: "#4E5058",
 };
 
+const initialFlow = {
+  nodes: [
+    {
+      id: getUniqueId().toString(),
+      position: { x: 0, y: 0 },
+      data: {},
+      type: "entry_component_button",
+    },
+  ],
+  edges: [],
+};
+
 export default function MessageComponentButton({
-  buttonId,
-  title,
+  rowIndex,
+  compIndex,
   disableFlowEditor,
 }: {
-  buttonId: NodeId;
-  title?: string;
+  rowIndex: number;
+  rowId: number;
+  compIndex: number;
+  compId: number;
   disableFlowEditor?: boolean;
 }) {
-  const button = useNode<ButtonNode>(buttonId);
-  const actions = useNodeActions(buttonId);
-  const { index } = actions;
-  const { update } = useDocumentStoreApi().getState();
+  const buttonCount = useCurrentMessage(
+    (state) => state.components[rowIndex].components.length
+  );
 
-  const style = button?.style;
+  const [label, setLabel] = useCurrentMessage(
+    useShallow((state) => [
+      state.getButton(rowIndex, compIndex)?.label || "",
+      state.setButtonLabel,
+    ])
+  );
+
+  const [emoji, setEmoji] = useCurrentMessage(
+    useShallow((state) => [
+      state.getButton(rowIndex, compIndex)?.emoji,
+      state.setButtonEmoji,
+    ])
+  );
+
+  const [url, setUrl] = useCurrentMessage(
+    useShallow((state) => {
+      const button = state.getButton(rowIndex, compIndex);
+      return [button?.style === 5 ? button.url : "", state.setButtonUrl];
+    })
+  );
+
+  const [style, setStyle] = useCurrentMessage(
+    useShallow((state) => [
+      state.getButton(rowIndex, compIndex)?.style,
+      state.setButtonStyle,
+    ])
+  );
+
+  const [disabled, setDisabled] = useCurrentMessage((state) => [
+    state.getButton(rowIndex, compIndex)?.disabled,
+    state.setButtonDisabled,
+  ]);
+
+  const [moveUp, moveDown, duplicate, remove] = useCurrentMessage(
+    useShallow((state) => [
+      state.moveButtonUp,
+      state.moveButtonDown,
+      state.duplicateButton,
+      state.deleteButton,
+    ])
+  );
 
   const color = useMemo(
     () => (style ? buttonColors[style] : buttonColors[1]),
     [style]
   );
 
-  if (!button || !style) {
+  const flowSourceId = useCurrentMessage(
+    (state) => state.getButton(rowIndex, compIndex)?.flow_source_id
+  );
+
+  const [flowData, replaceFlow] = useCurrentFlow(
+    useShallow((s) => [s.getFlow(flowSourceId || ""), s.replaceFlow])
+  );
+
+  const onFlowDialogClose = useCallback(
+    (d: FlowData) => {
+      if (flowSourceId) {
+        replaceFlow(flowSourceId, d);
+      }
+    },
+    [replaceFlow, flowSourceId]
+  );
+
+  if (!style) {
     // This is not a button (should never happen)
     return <div></div>;
   }
@@ -56,13 +128,42 @@ export default function MessageComponentButton({
       }}
     >
       <MessageCollapsibleSection
-        title={title ?? `Button ${index + 1}`}
+        title={`Button ${compIndex + 1}`}
         size="md"
-        validation={nodeScope(buttonId)}
+        valiationPathPrefix={`components.${rowIndex}.components.${compIndex}`}
         className="space-y-3"
         animate={false}
         defaultOpen={false}
-        actions={<MessageNodeActions actions={actions} />}
+        actions={
+          <>
+            {compIndex > 0 && (
+              <ChevronUpIcon
+                className="h-5 w-5"
+                onClick={() => moveUp(rowIndex, compIndex)}
+                role="button"
+              />
+            )}
+            {compIndex < buttonCount - 1 && (
+              <ChevronDownIcon
+                className="h-5 w-5"
+                onClick={() => moveDown(rowIndex, compIndex)}
+                role="button"
+              />
+            )}
+            {buttonCount < 5 && (
+              <CopyIcon
+                className="h-4 w-4"
+                onClick={() => duplicate(rowIndex, compIndex)}
+                role="button"
+              />
+            )}
+            <TrashIcon
+              className="h-4 w-4"
+              onClick={() => remove(rowIndex, compIndex)}
+              role="button"
+            />
+          </>
+        }
       >
         <div className="flex space-x-3">
           <div className="w-full">
@@ -79,37 +180,33 @@ export default function MessageComponentButton({
               ]}
               placeholder="Select a button style"
               onChange={(v) =>
-                update<ButtonNode>(buttonId, {
-                  style: parseInt(v) as MessageComponentButtonStyle,
-                })
+                setStyle(rowIndex, compIndex, parseInt(v) as any)
               }
-              validation={nodeField<ButtonNode>(buttonId, "style")}
+              validationPath={`components.${rowIndex}.components.${compIndex}.style`}
             />
           </div>
           <div className="flex-none">
             <MessageInput
               type="toggle"
               label="Disabled"
-              value={button.disabled || false}
-              onChange={(v) =>
-                update<ButtonNode>(buttonId, { disabled: v || undefined })
-              }
-              validation={nodeField<ButtonNode>(buttonId, "disabled")}
+              value={disabled || false}
+              onChange={(v) => setDisabled(rowIndex, compIndex, v || undefined)}
+              validationPath={`components.${rowIndex}.components.${compIndex}.disabled`}
             />
           </div>
         </div>
         <div className="flex space-x-3">
           <MessageEmojiPicker
-            emoji={button.emoji}
-            onChange={(emoji) => update<ButtonNode>(buttonId, { emoji })}
+            emoji={emoji}
+            onChange={(v) => setEmoji(rowIndex, compIndex, v)}
           />
           <MessageInput
             type="text"
             label="Label"
             maxLength={80}
-            value={button.label}
-            onChange={(label) => update<ButtonNode>(buttonId, { label })}
-            validation={nodeField<ButtonNode>(buttonId, "label")}
+            value={label}
+            onChange={(v) => setLabel(rowIndex, compIndex, v)}
+            validationPath={`components.${rowIndex}.components.${compIndex}.label`}
             placeholders
           />
         </div>
@@ -117,18 +214,23 @@ export default function MessageComponentButton({
           <MessageInput
             type="url"
             label="URL"
-            value={button.url ?? ""}
-            onChange={(url) => update<ButtonNode>(buttonId, { url })}
-            validation={nodeField<ButtonNode>(buttonId, "url")}
+            value={url}
+            onChange={(v) => setUrl(rowIndex, compIndex, v)}
+            validationPath={`components.${rowIndex}.components.${compIndex}.url`}
             placeholders
           />
         ) : (
-          !disableFlowEditor && (
-            <MessageComponentFlow
-              flowSourceId={button.flow_source_id}
-              context="component_button"
-            />
-          )
+          <>
+            {!disableFlowEditor && (
+              <FlowDialog
+                flowData={flowData || initialFlow}
+                context="component_button"
+                onClose={onFlowDialogClose}
+              >
+                <FlowPreview className="h-64 p-16 w-full" onClick={() => {}} />
+              </FlowDialog>
+            )}
+          </>
         )}
       </MessageCollapsibleSection>
     </Card>

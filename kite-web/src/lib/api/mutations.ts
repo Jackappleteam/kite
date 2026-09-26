@@ -51,9 +51,6 @@ import {
   PluginInstanceCreateResponse,
   PluginInstanceUpdateRequest,
   PluginInstanceUpdateResponse,
-  ShareCodeCreateRequest,
-  ShareCodeCreateResponse,
-  ShareCodeGetResponse,
   StateGuildLeaveResponse,
   SubscriptionManageResponse,
   SubscriptionPlanUpdateRequest,
@@ -827,28 +824,5 @@ export function useCommandsDeployMutation(appId: string) {
         queryKey: ["apps", appId, "commands"],
       });
     },
-  });
-}
-
-export function useShareCodeCreateMutation(appId: string) {
-  return useMutation({
-    mutationFn: (req: ShareCodeCreateRequest) =>
-      apiRequest<ShareCodeCreateResponse>(`/v1/apps/${appId}/share-codes`, {
-        method: "POST",
-        body: JSON.stringify(req),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }),
-  });
-}
-
-// A mutation rather than a query because it's only run on submit.
-export function useShareCodeResolveMutation() {
-  return useMutation({
-    mutationFn: (code: string) =>
-      apiRequest<ShareCodeGetResponse>(
-        `/v1/share-codes/${encodeURIComponent(code)}`
-      ),
   });
 }

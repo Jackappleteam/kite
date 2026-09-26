@@ -5,14 +5,13 @@ import { ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MessageValidationErrorIndicator from "./MessageValidationErrorMarker";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
-import { ValidationScope } from "@/lib/message/validationStore";
 
 export default function MessageCollapsibleSection({
   children,
   title,
   defaultOpen = true,
   size = "xl",
-  validation,
+  valiationPathPrefix,
   actions,
   className,
   animate = true,
@@ -21,7 +20,7 @@ export default function MessageCollapsibleSection({
   title: string;
   defaultOpen?: boolean;
   size?: "sm" | "md" | "lg" | "xl";
-  validation?: ValidationScope;
+  valiationPathPrefix?: string | string[];
   actions?: ReactNode;
   className?: string;
   animate?: boolean;
@@ -61,9 +60,11 @@ export default function MessageCollapsibleSection({
             )}
           />
           <div>{title}</div>
-          {validation && (
+          {valiationPathPrefix && (
             <div className="pl-1">
-              <MessageValidationErrorIndicator scope={validation} />
+              <MessageValidationErrorIndicator
+                pathPrefix={valiationPathPrefix}
+              />
             </div>
           )}
         </CollapsibleTrigger>

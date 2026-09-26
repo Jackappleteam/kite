@@ -22,8 +22,8 @@ import (
 	"github.com/kitecloud/kite/kite-service/pkg/plugin"
 	"github.com/kitecloud/kite/kite-service/pkg/plugin/counting"
 	"github.com/kitecloud/kite/kite-service/pkg/plugin/starboard"
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 )
 
 func StartServer(c context.Context, cfg *config.Config) error {
@@ -79,11 +79,6 @@ func StartServer(c context.Context, cfg *config.Config) error {
 		starboard.NewStarboardPlugin(),
 	)
 
-	planManager := plan.NewPlanManager(pg, pg, pg, plan.PlansFromConfig(cfg.Billing.Plans), plan.PlanManagerConfig{
-		DiscordBotToken: cfg.Discord.BotToken,
-		DiscordGuildID:  cfg.Discord.GuildID,
-	})
-
 	engine := engine.NewEngine(
 		engine.Env{
 			Config: engine.EngineConfig{
@@ -97,7 +92,6 @@ func StartServer(c context.Context, cfg *config.Config) error {
 				PopulateOverlap:        cfg.Engine.PopulateOverlap,
 			},
 			AppStore:             pg,
-			FeatureProvider:      planManager,
 			LogStore:             pg,
 			UsageStore:           pg,
 			MessageStore:         pg,
@@ -120,6 +114,11 @@ func StartServer(c context.Context, cfg *config.Config) error {
 
 	handler := event.NewEventHandlerWrapper(engine, pg)
 
+	planManager := plan.NewPlanManager(pg, pg, pg, plan.PlansFromConfig(cfg.Billing.Plans), plan.PlanManagerConfig{
+		DiscordBotToken: cfg.Discord.BotToken,
+		DiscordGuildID:  cfg.Discord.GuildID,
+	})
+
 	gateway := gateway.NewGatewayManager(pg, pg, planManager, handler, tokenCrypt, pluginRegistry, gateway.GatewayManagerConfig{
 		ClusterCount:           cfg.ClusterCount,
 		ClusterIndex:           cfg.ClusterIndex,
@@ -129,9 +128,8 @@ func StartServer(c context.Context, cfg *config.Config) error {
 		StartInterval:          cfg.Gateway.StartInterval,
 	})
 	gateway.Run(ctx)
-	engine.RunScheduler(ctx, gateway)
 
-	usage := usage.NewUsageManager(pg, pg, pg, pg, pg, pg, planManager)
+	usage := usage.NewUsageManager(pg, pg, pg, planManager)
 
 	if cfg.IsPrimaryCluster() {
 		planManager.Run(ctx)
@@ -158,7 +156,7 @@ func StartServer(c context.Context, cfg *config.Config) error {
 			Plans:                     cfg.Billing.Plans,
 		},
 	},
-		pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg,
+		pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg, pg,
 		assetStore, gateway, planManager, pluginRegistry, tokenCrypt, commandManager,
 	)
 	address := fmt.Sprintf("%s:%d", cfg.API.Host, cfg.API.Port)

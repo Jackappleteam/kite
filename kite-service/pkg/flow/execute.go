@@ -50,7 +50,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			return traceError(n, err)
 		}
 
-		acknowledgeUnansweredComponent(ctx)
 		return nil
 	case FlowNodeTypeEntryEvent:
 		if !ctx.IsEntry() {
@@ -76,11 +75,10 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			}
 		}
 
-		data, opts, resumePointID, err := n.prepareMessage(ctx)
+		responseData, resumePointID, err := n.prepareMessageResponseData(ctx)
 		if err != nil {
 			return traceError(n, err)
 		}
-		responseData := data.ToInteractionResponseData(opts)
 
 		hasCreatedResponse, err := ctx.Discord.HasCreatedInteractionResponse(ctx, interaction.ID)
 		if err != nil {
@@ -124,7 +122,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			err := ctx.MessageTemplate.LinkMessageTemplateInstance(ctx, provider.MessageTemplateInstance{
 				MessageTemplateID: n.Data.MessageTemplateID,
 				MessageID:         msg.ID,
-				ChannelID:         msg.ChannelID,
+				ChannelID:         ctx.Data.ChannelID(),
 				GuildID:           ctx.Data.GuildID(),
 				Ephemeral:         n.Data.MessageEphemeral,
 			})
@@ -147,7 +145,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			}
 		}
 
-		data, opts, resumePointID, err := n.prepareMessage(ctx)
+		responseData, resumePointID, err := n.prepareMessageResponseData(ctx)
 		if err != nil {
 			return traceError(n, err)
 		}
@@ -160,12 +158,15 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			}
 
 			if hasCreatedResponse {
-				msg, err = ctx.Discord.EditInteractionResponse(ctx, interaction.AppID, interaction.Token, data.ToEditInteractionResponseData(opts))
+				msg, err = ctx.Discord.EditInteractionResponse(ctx, interaction.AppID, interaction.Token, api.EditInteractionResponseData{
+					Content:    responseData.Content,
+					Embeds:     responseData.Embeds,
+					Components: responseData.Components,
+				})
 				if err != nil {
 					return traceError(n, err)
 				}
 			} else {
-				responseData := data.ToInteractionResponseData(opts)
 				resp := api.InteractionResponse{
 					Type: api.UpdateMessage,
 					Data: &responseData,
@@ -191,7 +192,11 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 				interaction.AppID,
 				interaction.Token,
 				discord.MessageID(messageTarget.Snowflake()),
-				data.ToEditInteractionResponseData(opts),
+				api.EditInteractionResponseData{
+					Content:    responseData.Content,
+					Embeds:     responseData.Embeds,
+					Components: responseData.Components,
+				},
 			)
 			if err != nil {
 				return traceError(n, err)
@@ -213,7 +218,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			err := ctx.MessageTemplate.LinkMessageTemplateInstance(ctx, provider.MessageTemplateInstance{
 				MessageTemplateID: n.Data.MessageTemplateID,
 				MessageID:         msg.ID,
-				ChannelID:         msg.ChannelID,
+				ChannelID:         ctx.Data.ChannelID(),
 				GuildID:           ctx.Data.GuildID(),
 				Ephemeral:         n.Data.MessageEphemeral,
 			})
@@ -310,57 +315,34 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			}
 		}
 
-		// The custom IDs aren't evaluated, as input() looks values up by them.
-		title, err := ctx.EvalTemplate(n.Data.ModalData.Title)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		componentRows := make(discord.TopLevelComponents, len(n.Data.ModalData.Components))
-		for i, row := range n.Data.ModalData.Components {
-			r := make(discord.ActionRowComponent, len(row.Components))
-			for j, component := range row.Components {
-				label, err := ctx.EvalTemplate(component.Label)
-				if err != nil {
-					return traceError(n, err)
-				}
-
-				placeholder, err := ctx.EvalTemplate(component.Placeholder)
-				if err != nil {
-					return traceError(n, err)
-				}
-
-				value, err := ctx.EvalTemplateKeepSpace(component.Value)
-				if err != nil {
-					return traceError(n, err)
-				}
-
-				r[j] = &discord.TextInputComponent{
-					CustomID:     discord.ComponentID(component.CustomID),
-					Label:        label.String(),
-					Style:        discord.TextInputStyle(component.Style),
-					Required:     component.Required,
-					LengthLimits: [2]int{component.MinLength, component.MaxLength},
-					Value:        value.String(),
-					Placeholder:  placeholder.String(),
-				}
-			}
-
-			componentRows[i] = discord.TopLevelComponent(&r)
-		}
-
-		// Suspend only once the modal is ready, so a failed template doesn't
-		// leave a resume point behind.
 		resumePoint, err := ctx.suspend(ResumePointTypeModal, util.UniqueID(), n.ID)
 		if err != nil {
 			return traceError(n, fmt.Errorf("failed to suspend: %w", err))
+		}
+
+		componentRows := make(discord.ContainerComponents, len(n.Data.ModalData.Components))
+		for i, row := range n.Data.ModalData.Components {
+			r := make(discord.ActionRowComponent, len(row.Components))
+			for j, component := range row.Components {
+				r[j] = &discord.TextInputComponent{
+					CustomID:     discord.ComponentID(component.CustomID),
+					Label:        component.Label,
+					Style:        discord.TextInputStyle(component.Style),
+					Required:     component.Required,
+					LengthLimits: [2]int{component.MinLength, component.MaxLength},
+					Value:        component.Value,
+					Placeholder:  component.Placeholder,
+				}
+			}
+
+			componentRows[i] = discord.ContainerComponent(&r)
 		}
 
 		resp := api.InteractionResponse{
 			Type: api.ModalResponse,
 			Data: &api.InteractionResponseData{
 				CustomID:   option.NewNullableString(message.CustomIDModalResumePoint(resumePoint.ID)),
-				Title:      option.NewNullableString(title.String()),
+				Title:      option.NewNullableString(n.Data.ModalData.Title),
 				Components: &componentRows,
 			},
 		}
@@ -376,11 +358,10 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			return n.resumeFromComponent(ctx)
 		}
 
-		data, opts, resumePointID, err := n.prepareMessage(ctx)
+		messageData, resumePointID, err := n.prepareMessageSendData(ctx)
 		if err != nil {
 			return traceError(n, err)
 		}
-		messageData := data.ToSendMessageData(opts)
 
 		channelTarget, err := ctx.EvalTemplate(n.Data.ChannelTarget)
 		if err != nil {
@@ -409,7 +390,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			err := ctx.MessageTemplate.LinkMessageTemplateInstance(ctx, provider.MessageTemplateInstance{
 				MessageTemplateID: n.Data.MessageTemplateID,
 				MessageID:         msg.ID,
-				ChannelID:         msg.ChannelID,
+				ChannelID:         ctx.Data.ChannelID(),
 				GuildID:           ctx.Data.GuildID(),
 				Ephemeral:         n.Data.MessageEphemeral,
 			})
@@ -434,17 +415,22 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			return traceError(n, err)
 		}
 
-		data, opts, resumePointID, err := n.prepareMessage(ctx)
+		messageData, resumePointID, err := n.prepareMessageSendData(ctx)
 		if err != nil {
 			return traceError(n, err)
 		}
-		editData := data.ToEditMessageData(opts)
 
 		msg, err := ctx.Discord.EditMessage(
 			ctx,
 			discord.ChannelID(channelTarget.Snowflake()),
 			discord.MessageID(messageTarget.Snowflake()),
-			editData,
+			api.EditMessageData{
+				Content: option.NewNullableString(messageData.Content),
+				Embeds:  &messageData.Embeds,
+				// Without this the edit silently drops the buttons, even
+				// though a resume point is created for them right below.
+				Components: &messageData.Components,
+			},
 		)
 		if err != nil {
 			return traceError(n, err)
@@ -463,7 +449,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			err := ctx.MessageTemplate.LinkMessageTemplateInstance(ctx, provider.MessageTemplateInstance{
 				MessageTemplateID: n.Data.MessageTemplateID,
 				MessageID:         msg.ID,
-				ChannelID:         msg.ChannelID,
+				ChannelID:         ctx.Data.ChannelID(),
 				GuildID:           ctx.Data.GuildID(),
 				Ephemeral:         n.Data.MessageEphemeral,
 			})
@@ -500,16 +486,117 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 		}
 
 		return n.ExecuteChildren(ctx)
+	case FlowNodeTypeActionMessageBulkDelete:
+		channelID := ctx.Data.ChannelID()
+
+		if n.Data.ChannelTarget != "" {
+			channelTarget, err := ctx.EvalTemplate(n.Data.ChannelTarget)
+			if err != nil {
+				return traceError(n, err)
+			}
+
+			channelID = discord.ChannelID(channelTarget.Snowflake())
+		}
+
+		countValue, err := ctx.EvalTemplate(n.Data.MessageBulkDeleteCount)
+		if err != nil {
+			return traceError(n, err)
+		}
+
+		count := int(countValue.Int())
+		if count < 2 {
+			count = 2
+		}
+		if count > 1000 {
+			count = 1000
+		}
+
+		var userID discord.UserID
+		if n.Data.UserTarget != "" {
+			userTarget, err := ctx.EvalTemplate(n.Data.UserTarget)
+			if err != nil {
+				return traceError(n, err)
+			}
+
+			userID = discord.UserID(userTarget.Snowflake())
+		}
+
+		auditLogReason, err := ctx.EvalTemplate(n.Data.AuditLogReason)
+		if err != nil {
+			return traceError(n, err)
+		}
+
+		messages, err := ctx.Discord.Messages(ctx, channelID, uint(count))
+		if err != nil {
+			return traceError(n, err)
+		}
+
+		bulkDeleteCutoff := time.Now().AddDate(0, 0, -14).Add(time.Hour)
+
+		var deletableIDs []discord.MessageID
+		skippedCount := 0
+
+		for _, msg := range messages {
+			if len(deletableIDs) >= count {
+				break
+			}
+
+			if userID.IsValid() && msg.Author.ID != userID {
+				continue
+			}
+
+			if msg.ID.Time().Before(bulkDeleteCutoff) {
+				skippedCount++
+				continue
+			}
+
+			deletableIDs = append(deletableIDs, msg.ID)
+		}
+
+		deletedCount := 0
+
+		switch len(deletableIDs) {
+		case 0:
+		case 1:
+			err = ctx.Discord.DeleteMessage(
+				ctx,
+				channelID,
+				deletableIDs[0],
+				api.AuditLogReason(auditLogReason.String()),
+			)
+			if err != nil {
+				return traceError(n, err)
+			}
+			deletedCount = 1
+		default:
+			err = ctx.Discord.BulkDeleteMessages(
+				ctx,
+				channelID,
+				deletableIDs,
+				api.AuditLogReason(auditLogReason.String()),
+			)
+			if err != nil {
+				return traceError(n, err)
+			}
+			deletedCount = len(deletableIDs)
+		}
+
+		if skippedCount > 0 {
+			ctx.Log.CreateLogEntry(ctx, provider.LogLevelWarn, fmt.Sprintf("skipped %d messages older than 14 days", skippedCount))
+		}
+
+		ctx.StoreNodeResult(n, thing.NewInt(deletedCount))
+
+		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionPrivateMessageCreate:
 		if ctx.IsEntry() {
 			return n.resumeFromComponent(ctx)
 		}
 
-		data, opts, resumePointID, err := n.prepareMessage(ctx)
+		messageData, resumePointID, err := n.prepareMessageSendData(ctx)
 		if err != nil {
 			return traceError(n, err)
 		}
-		messageData := data.ToSendMessageData(opts)
 
 		userTarget, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
@@ -604,42 +691,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 		}
 
 		return n.ExecuteChildren(ctx)
-	case FlowNodeTypeActionMessagePin, FlowNodeTypeActionMessageUnpin:
-		channelTarget, err := ctx.EvalTemplate(n.Data.ChannelTarget)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		messageTarget, err := ctx.EvalTemplate(n.Data.MessageTarget)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		auditLogReason, err := ctx.EvalTemplate(n.Data.AuditLogReason)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		channelID := discord.ChannelID(channelTarget.Snowflake())
-		messageID := discord.MessageID(messageTarget.Snowflake())
-		reason := api.AuditLogReason(auditLogReason.String())
-
-		if n.Type == FlowNodeTypeActionMessagePin {
-			err = ctx.Discord.PinMessage(ctx, channelID, messageID, reason)
-		} else {
-			err = ctx.Discord.UnpinMessage(ctx, channelID, messageID, reason)
-		}
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberBan:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		userID, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
 			return traceError(n, err)
@@ -657,7 +709,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		err = ctx.Discord.BanMember(
 			ctx,
-			guildID,
+			ctx.Data.GuildID(),
 			discord.UserID(userID.Snowflake()),
 			api.BanData{
 				DeleteDays:     option.NewUint(uint(messageDeleteSeconds.Float() / 86400)),
@@ -670,11 +722,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberUnban:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		userID, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
 			return traceError(n, err)
@@ -687,7 +734,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		err = ctx.Discord.UnbanMember(
 			ctx,
-			guildID,
+			ctx.Data.GuildID(),
 			discord.UserID(userID.Snowflake()),
 			api.AuditLogReason(auditLogReason.String()),
 		)
@@ -697,11 +744,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberKick:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		userID, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
 			return traceError(n, err)
@@ -714,7 +756,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		err = ctx.Discord.KickMember(
 			ctx,
-			guildID,
+			ctx.Data.GuildID(),
 			discord.UserID(userID.Snowflake()),
 			api.AuditLogReason(auditLogReason.String()),
 		)
@@ -724,11 +766,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberTimeout:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		memberID, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
 			return traceError(n, err)
@@ -750,7 +787,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		err = ctx.Discord.EditMember(
 			ctx,
-			guildID,
+			ctx.Data.GuildID(),
 			discord.UserID(memberID.Snowflake()),
 			api.ModifyMemberData{
 				CommunicationDisabledUntil: &communicationDisabledUntil,
@@ -763,11 +800,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberEdit:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		userID, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
 			return traceError(n, err)
@@ -795,7 +827,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		err = ctx.Discord.EditMember(
 			ctx,
-			guildID,
+			ctx.Data.GuildID(),
 			discord.UserID(userID.Snowflake()),
 			data,
 		)
@@ -805,11 +837,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberRoleAdd:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		userID, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
 			return traceError(n, err)
@@ -827,7 +854,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		err = ctx.Discord.AddMemberRole(
 			ctx,
-			guildID,
+			ctx.Data.GuildID(),
 			discord.UserID(userID.Snowflake()),
 			discord.RoleID(roleID.Snowflake()),
 			api.AuditLogReason(auditLogReason.String()),
@@ -838,11 +865,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberRoleRemove:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		userID, err := ctx.EvalTemplate(n.Data.UserTarget)
 		if err != nil {
 			return traceError(n, err)
@@ -860,7 +882,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		err = ctx.Discord.RemoveMemberRole(
 			ctx,
-			guildID,
+			ctx.Data.GuildID(),
 			discord.UserID(userID.Snowflake()),
 			discord.RoleID(roleID.Snowflake()),
 			api.AuditLogReason(auditLogReason.String()),
@@ -871,9 +893,15 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionMemberGet:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
+		guildID := ctx.Data.GuildID()
+
+		if n.Data.GuildTarget != "" {
+			guildTarget, err := ctx.EvalTemplate(n.Data.GuildTarget)
+			if err != nil {
+				return traceError(n, err)
+			}
+
+			guildID = discord.GuildID(guildTarget.Snowflake())
 		}
 
 		memberID, err := ctx.EvalTemplate(n.Data.UserTarget)
@@ -934,9 +962,14 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			return traceError(n, fmt.Errorf("channel data is required"))
 		}
 
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
+		guildID := ctx.Data.GuildID()
+		if n.Data.GuildTarget != "" {
+			guildTarget, err := ctx.EvalTemplate(n.Data.GuildTarget)
+			if err != nil {
+				return traceError(n, err)
+			}
+
+			guildID = discord.GuildID(guildTarget.Snowflake())
 		}
 
 		channelData, err := n.Data.ChannelData.ToCreateChannelData(ctx, ctx.EvalCtx)
@@ -1123,9 +1156,15 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 	case FlowNodeTypeActionForumPostCreate:
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionRoleGet:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
+		guildID := ctx.Data.GuildID()
+
+		if n.Data.GuildTarget != "" {
+			guildTarget, err := ctx.EvalTemplate(n.Data.GuildTarget)
+			if err != nil {
+				return traceError(n, err)
+			}
+
+			guildID = discord.GuildID(guildTarget.Snowflake())
 		}
 
 		roleID, err := ctx.EvalTemplate(n.Data.RoleTarget)
@@ -1231,14 +1270,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			return traceError(n, err)
 		}
 
-		evalValue := ctx.EvalTemplate
-		switch n.Data.VariableOperation {
-		case provider.VariableOperationAppend, provider.VariableOperationPrepend:
-			// Spaces between the joined texts are part of the value.
-			evalValue = ctx.EvalTemplateKeepSpace
-		}
-
-		value, err := evalValue(n.Data.VariableValue)
+		value, err := ctx.EvalTemplate(n.Data.VariableValue)
 		if err != nil {
 			return traceError(n, err)
 		}
@@ -1288,82 +1320,6 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 		}
 
 		ctx.StoreNodeResult(n, val)
-		return n.ExecuteChildren(ctx)
-	case FlowNodeTypeActionVoiceChannelJoin:
-		channelTarget, err := ctx.EvalTemplate(n.Data.ChannelTarget)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		// The guild comes from the channel, so the block also works with voice
-		// channels of servers other than the one the flow runs in.
-		channel, err := ctx.Discord.Channel(ctx, discord.ChannelID(channelTarget.Snowflake()))
-		if err != nil {
-			return traceError(n, err)
-		}
-		if channel.Type != discord.GuildVoice && channel.Type != discord.GuildStageVoice {
-			return traceError(n, fmt.Errorf("channel %s is not a voice channel", channel.ID))
-		}
-
-		err = ctx.Discord.UpdateVoiceState(
-			ctx,
-			channel.GuildID,
-			channel.ID,
-			n.Data.VoiceSelfMute,
-			n.Data.VoiceSelfDeaf,
-		)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		return n.ExecuteChildren(ctx)
-	case FlowNodeTypeActionVoiceChannelLeave:
-		guildID, err := n.targetGuildID(ctx)
-		if err != nil {
-			return traceError(n, err)
-		}
-		if guildID == 0 {
-			return traceError(n, fmt.Errorf("leaving a voice channel only works in servers"))
-		}
-
-		err = ctx.Discord.UpdateVoiceState(ctx, guildID, 0, false, false)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		return n.ExecuteChildren(ctx)
-	case FlowNodeTypeActionStatusSet:
-		if n.Data.StatusData == nil {
-			return n.ExecuteChildren(ctx)
-		}
-
-		activityName, err := ctx.EvalTemplate(n.Data.StatusData.ActivityName)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		activityURL, err := ctx.EvalTemplate(n.Data.StatusData.ActivityURL)
-		if err != nil {
-			return traceError(n, err)
-		}
-
-		status := discord.Status(n.Data.StatusData.Status)
-		if status == "" {
-			status = discord.OnlineStatus
-		}
-
-		// Same shape as the statuses from the app settings, which also put the
-		// name into State so it shows up for custom statuses.
-		err = ctx.Discord.UpdatePresence(ctx, status, discord.Activity{
-			Type:  discord.ActivityType(n.Data.StatusData.ActivityType),
-			Name:  activityName.String(),
-			State: activityName.String(),
-			URL:   activityURL.String(),
-		})
-		if err != nil {
-			return traceError(n, err)
-		}
-
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeActionHTTPRequest:
 		if n.Data.HTTPRequestData == nil {
@@ -1598,7 +1554,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 		case ComparsionModeEqual:
 			conditionMet = baseValue.Equals(&itemValue)
 		case ComparsionModeNotEqual:
-			conditionMet = !baseValue.Equals(&itemValue)
+			conditionMet = baseValue.Equals(&itemValue)
 		case ComparsionModeGreaterThan:
 			conditionMet = baseValue.GreaterThan(&itemValue)
 		case ComparsionModeGreaterThanOrEqual:
@@ -1650,7 +1606,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 		case ComparsionModeEqual:
 			conditionMet = baseValue.Equals(&itemValue)
 		case ComparsionModeNotEqual:
-			conditionMet = !baseValue.Equals(&itemValue)
+			conditionMet = baseValue.Equals(&itemValue)
 		case ComparsionModeHasRole:
 			member := baseValue.DiscordMember()
 			if !member.User.ID.IsValid() {
@@ -1733,9 +1689,12 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 
 		return n.ExecuteChildren(ctx)
 	case FlowNodeTypeControlErrorHandler:
-		if err := n.ExecuteChildren(ctx); err != nil {
-			return n.handleError(ctx, err)
+		err := n.ExecuteChildren(ctx)
+		if err != nil {
+			ctx.StoreNodeResult(n, thing.NewString(err.Error()))
+			return n.ExecuteChildrenByHandle(ctx, "error")
 		}
+
 		return nil
 	case FlowNodeTypeControlLoop:
 		loopCount, err := ctx.EvalTemplate(n.Data.LoopCount)
@@ -1777,19 +1736,7 @@ func (n *CompiledFlowNode) Execute(ctx *FlowContext) error {
 			return traceError(n, err)
 		}
 
-		// Checked before converting, huge values overflow time.Duration.
-		// Negative values would overflow into a huge duration too.
-		seconds := max(sleepSeconds.Float(), 0)
-		if seconds > maxSleepDuration.Seconds() {
-			return traceError(n, fmt.Errorf("sleep can't be longer than %d days", int(maxSleepDuration.Hours()/24)))
-		}
-		duration := time.Duration(seconds) * time.Second
-
-		// A resumed flow only runs what comes after the sleep block, so a loop
-		// couldn't continue with its next iteration.
-		if duration > durableSleepThreshold && !n.inLoop() {
-			return n.sleepDurable(ctx, duration)
-		}
+		duration := time.Duration(sleepSeconds.Float()) * time.Second
 
 		deadline, ok := ctx.Deadline()
 		if ok && time.Now().Add(duration).After(deadline) {
@@ -1864,16 +1811,6 @@ func (n *CompiledFlowNode) ExecuteChildren(ctx *FlowContext) error {
 }
 
 func (n *CompiledFlowNode) autoDeferInteraction(ctx *FlowContext) error {
-	return autoDeferInteraction(ctx, n.FirstChildMatching(isResponseNode))
-}
-
-// autoDeferInteraction defers the interaction if the flow doesn't respond in
-// time, guessing the kind of defer from responseNode, the first response the
-// flow can reach.
-//
-// This can't be right for every flow — branches may disagree, and only one of
-// them runs. Users who need certainty should defer explicitly instead.
-func autoDeferInteraction(ctx *FlowContext, responseNode *CompiledFlowNode) error {
 	interaction := ctx.Data.Interaction()
 	if interaction == nil {
 		return &FlowError{
@@ -1882,151 +1819,21 @@ func autoDeferInteraction(ctx *FlowContext, responseNode *CompiledFlowNode) erro
 		}
 	}
 
-	go ctx.Discord.AutoDeferInteraction(ctx, interaction.ID, interaction.Token, autoDeferResponse(interaction, responseNode))
-	return nil
-}
-
-func autoDeferResponse(interaction *discord.InteractionEvent, responseNode *CompiledFlowNode) api.InteractionResponse {
-	// A component interaction that doesn't create a new response either edits
-	// the message the component is on or doesn't respond at all. Both only
-	// need an acknowledgement, and a "thinking…" message would be edited
-	// instead of the component's message.
-	if _, ok := interaction.Data.(discord.ComponentInteraction); ok {
-		if responseNode == nil || (responseNode.Type != FlowNodeTypeActionResponseCreate && responseNode.Type != FlowNodeTypeActionResponseDefer) {
-			return api.InteractionResponse{Type: api.DeferredMessageUpdate}
-		}
-	}
-
-	// The first response after this defer replaces the "thinking…" message and
-	// keeps the defer's flags, so ephemeral-ness has to be decided now.
-	resp := api.InteractionResponse{
-		Type: api.DeferredMessageInteractionWithSource,
-		Data: &api.InteractionResponseData{},
-	}
+	// The defer has to declare up front whether the response is ephemeral, so
+	// we guess from the first response the flow can reach. The guess only
+	// binds a response that edits the original; a followup carries its own
+	// flags either way.
+	//
+	// This can't be right for every flow — branches may disagree, and only one
+	// of them runs. Users who need certainty should defer explicitly instead.
+	var responseFlags discord.MessageFlags
+	responseNode := n.FirstChildMatching(isResponseNode)
 	if responseNode != nil && responseNode.Data.MessageEphemeral {
-		resp.Data.Flags |= discord.EphemeralMessage
-	}
-	return resp
-}
-
-const (
-	// durableSleepThreshold is the longest sleep that keeps the flow running.
-	// Longer sleeps end the execution and resume the flow from the database.
-	durableSleepThreshold = 5 * time.Second
-	maxSleepDuration      = 30 * 24 * time.Hour
-	// maxDurableSleeps bounds how often one flow can resume from a durable
-	// sleep. Each resume starts with fresh execution limits.
-	maxDurableSleeps = 10
-)
-
-func (n *CompiledFlowNode) sleepDurable(ctx *FlowContext, duration time.Duration) error {
-	if ctx.DurableSleeps >= maxDurableSleeps {
-		return traceError(n, fmt.Errorf("a flow can wait at most %d times for longer than %s", maxDurableSleeps, durableSleepThreshold))
+		responseFlags |= discord.EphemeralMessage
 	}
 
-	// The execution ends here, so the auto defer would never fire. Discord
-	// shows "This interaction failed" for interactions without a response.
-	if err := n.deferUnanswered(ctx); err != nil {
-		return traceError(n, err)
-	}
-
-	if err := ctx.suspendTimer(n.ID, time.Now().UTC().Add(duration)); err != nil {
-		return traceError(n, err)
-	}
+	go ctx.Discord.AutoDeferInteraction(ctx, interaction.ID, interaction.Token, responseFlags)
 	return nil
-}
-
-// ResumeAfterSleep continues a flow that suspended in the sleep block n. The
-// blocks that led to the sleep don't run again, so errors are handled here
-// like they would have been by them.
-func (n *CompiledFlowNode) ResumeAfterSleep(ctx *FlowContext) error {
-	if err := ctx.startOperation(0); err != nil {
-		return err
-	}
-	defer ctx.endOperation()
-
-	err := n.ExecuteChildren(ctx)
-
-	// Like normal execution, an error goes to the nearest Error Handler, and
-	// an error in its error branch to the next one.
-	for _, handler := range n.enclosingErrorHandlers() {
-		if err == nil {
-			break
-		}
-		err = handler.handleError(ctx, err)
-	}
-
-	if err != nil {
-		createDefaultErrorResponse(ctx, err)
-	}
-	return err
-}
-
-// handleError runs the error branch of the Error Handler n.
-func (n *CompiledFlowNode) handleError(ctx *FlowContext, err error) error {
-	ctx.StoreNodeResult(n, thing.NewString(err.Error()))
-	return n.ExecuteChildrenByHandle(ctx, "error")
-}
-
-// enclosingErrorHandlers returns the Error Handlers that n runs under, nearest
-// first. Those are the ones that reach n through their default branch rather
-// than their error branch.
-func (n *CompiledFlowNode) enclosingErrorHandlers() []*CompiledFlowNode {
-	var res []*CompiledFlowNode
-	for _, handler := range n.FindAllParentsWithType(FlowNodeTypeControlErrorHandler) {
-		if n.runsUnder(handler.Children.Default) {
-			res = append(res, handler)
-		}
-	}
-	return res
-}
-
-// inLoop reports whether n runs as part of a loop iteration in its execution.
-func (n *CompiledFlowNode) inLoop() bool {
-	for _, each := range n.FindAllParentsWithType(FlowNodeTypeControlLoopEach) {
-		if n.runsUnder(each.Children.Default) {
-			return true
-		}
-	}
-	return false
-}
-
-// deferUnanswered defers the interaction the flow runs with, unless something
-// already responded to it.
-func (n *CompiledFlowNode) deferUnanswered(ctx *FlowContext) error {
-	interaction := ctx.Data.Interaction()
-	if interaction == nil {
-		return nil
-	}
-
-	if responded, err := ctx.Discord.HasCreatedInteractionResponse(ctx, interaction.ID); err != nil || responded {
-		return err
-	}
-
-	resp := autoDeferResponse(interaction, FirstMatching(n.Children.Default, isResponseNode))
-	_, err := ctx.Discord.CreateInteractionResponse(ctx, interaction.ID, interaction.Token, resp)
-	if err != nil {
-		// The entry's auto defer can respond at the same time.
-		if responded, _ := ctx.Discord.HasCreatedInteractionResponse(ctx, interaction.ID); responded {
-			return nil
-		}
-	}
-	return err
-}
-
-// targetGuildID returns the guild a block acts on: the guild target if one is
-// set, otherwise the guild of the interaction or event that triggered the flow.
-func (n *CompiledFlowNode) targetGuildID(ctx *FlowContext) (discord.GuildID, error) {
-	if n.Data.GuildTarget == "" {
-		return ctx.Data.GuildID(), nil
-	}
-
-	guildTarget, err := ctx.EvalTemplate(n.Data.GuildTarget)
-	if err != nil {
-		return 0, err
-	}
-
-	return discord.GuildID(guildTarget.Snowflake()), nil
 }
 
 func (n *CompiledFlowNode) resumeFromComponent(ctx *FlowContext) error {
@@ -2038,15 +1845,13 @@ func (n *CompiledFlowNode) resumeFromComponent(ctx *FlowContext) error {
 		}
 	}
 
-	data, ok := interaction.Data.(discord.ComponentInteraction)
-	if !ok {
-		return &FlowError{
-			Code:    FlowNodeErrorUnknown,
-			Message: "interaction is not a component interaction",
-		}
+	err := n.autoDeferInteraction(ctx)
+	if err != nil {
+		return traceError(n, err)
 	}
 
-	_, compID, ok := message.DecodeCustomIDMessageComponentResumePoint(string(data.ID()))
+	data := interaction.Data.(*discord.ButtonInteraction)
+	_, compID, ok := message.DecodeCustomIDMessageComponentResumePoint(string(data.CustomID))
 	if !ok {
 		return &FlowError{
 			Code:    FlowNodeErrorUnknown,
@@ -2054,21 +1859,12 @@ func (n *CompiledFlowNode) resumeFromComponent(ctx *FlowContext) error {
 		}
 	}
 
-	// Only the clicked component's branch runs, so guess the defer from it
-	// rather than from the node's other children.
-	handle := fmt.Sprintf("component_%d", compID)
-	err := autoDeferInteraction(ctx, FirstMatching(n.Children.Handles[handle], isResponseNode))
-	if err != nil {
-		return traceError(n, err)
-	}
-
-	err = n.ExecuteChildrenByHandle(ctx, handle)
+	err = n.ExecuteChildrenByHandle(ctx, fmt.Sprintf("component_%d", compID))
 	if err != nil {
 		createDefaultErrorResponse(ctx, err)
 		return traceError(n, err)
 	}
 
-	acknowledgeUnansweredComponent(ctx)
 	return nil
 }
 
@@ -2108,53 +1904,51 @@ func (n *CompiledFlowNode) prepareMessageData(ctx *FlowContext) (message.Message
 	return data, nil
 }
 
-// prepareMessage evaluates the node's message and returns it with the options to
-// convert it, pointing interactive components at a new resume point if needed.
-func (n *CompiledFlowNode) prepareMessage(ctx *FlowContext) (message.MessageData, message.ConvertOptions, string, error) {
+func (n *CompiledFlowNode) prepareMessageResponseData(ctx *FlowContext) (api.InteractionResponseData, string, error) {
 	data, err := n.prepareMessageData(ctx)
 	if err != nil {
-		return message.MessageData{}, message.ConvertOptions{}, "", err
+		return api.InteractionResponseData{}, "", err
 	}
 
 	var resumePointID string
-	if n.Data.MessageTemplateID == "" && data.HasInteractiveComponents() {
-		// The resume point will be created after the message has been sent, we just need the ID here already
+	if n.Data.MessageTemplateID == "" && len(data.Components) > 0 {
 		resumePointID = util.UniqueID()
 	}
 
-	opts := message.ConvertOptions{
+	responseData := data.ToInteractionResponseData(message.ConvertOptions{
 		ComponentIDFactory: func(component *message.ComponentData) discord.ComponentID {
 			if resumePointID != "" {
 				return discord.ComponentID(message.CustomIDMessageComponentResumePoint(resumePointID, component.ID))
 			}
 			return discord.ComponentID(component.FlowSourceID)
 		},
-	}
+	})
 
-	return data, opts, resumePointID, nil
+	return responseData, resumePointID, nil
 }
 
-// acknowledgeUnansweredComponent acknowledges a component interaction the flow
-// finished without responding to, e.g. a button that only sends a channel
-// message. Discord shows "This interaction failed" otherwise, and the
-// auto-defer doesn't fire for flows that finish quickly.
-func acknowledgeUnansweredComponent(ctx *FlowContext) {
-	interaction := ctx.Data.Interaction()
-	if interaction == nil {
-		return
-	}
-	if _, ok := interaction.Data.(discord.ComponentInteraction); !ok {
-		return
+func (n *CompiledFlowNode) prepareMessageSendData(ctx *FlowContext) (api.SendMessageData, string, error) {
+	data, err := n.prepareMessageData(ctx)
+	if err != nil {
+		return api.SendMessageData{}, "", err
 	}
 
-	hasCreatedResponse, err := ctx.Discord.HasCreatedInteractionResponse(ctx, interaction.ID)
-	if err != nil || hasCreatedResponse {
-		return
+	var resumePointID string
+	if n.Data.MessageTemplateID == "" && len(data.Components) > 0 {
+		// The resume point will be created after the message has been sent, we just need the ID here already
+		resumePointID = util.UniqueID()
 	}
 
-	_, _ = ctx.Discord.CreateInteractionResponse(ctx, interaction.ID, interaction.Token, api.InteractionResponse{
-		Type: api.DeferredMessageUpdate,
+	sendData := data.ToSendMessageData(message.ConvertOptions{
+		ComponentIDFactory: func(component *message.ComponentData) discord.ComponentID {
+			if resumePointID != "" {
+				return discord.ComponentID(message.CustomIDMessageComponentResumePoint(resumePointID, component.ID))
+			}
+			return discord.ComponentID(component.FlowSourceID)
+		},
 	})
+
+	return sendData, resumePointID, nil
 }
 
 func createDefaultErrorResponse(fCtx *FlowContext, err error) {

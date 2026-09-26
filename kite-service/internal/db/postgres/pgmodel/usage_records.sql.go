@@ -48,26 +48,13 @@ func (q *Queries) CreateUsageRecord(ctx context.Context, arg CreateUsageRecordPa
 	return err
 }
 
-const deleteUsageRecordsBefore = `-- name: DeleteUsageRecordsBefore :execrows
-DELETE FROM usage_records WHERE id IN (
-    SELECT expired.id FROM usage_records expired
-    WHERE expired.created_at < $1
-    LIMIT $2
-)
+const deleteUsageRecordsBefore = `-- name: DeleteUsageRecordsBefore :exec
+DELETE FROM usage_records WHERE created_at < $1
 `
 
-type DeleteUsageRecordsBeforeParams struct {
-	BeforeAt  pgtype.Timestamp
-	BatchSize int32
-}
-
-// Batched so a large backlog doesn't hold one long transaction.
-func (q *Queries) DeleteUsageRecordsBefore(ctx context.Context, arg DeleteUsageRecordsBeforeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteUsageRecordsBefore, arg.BeforeAt, arg.BatchSize)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+func (q *Queries) DeleteUsageRecordsBefore(ctx context.Context, beforeAt pgtype.Timestamp) error {
+	_, err := q.db.Exec(ctx, deleteUsageRecordsBefore, beforeAt)
+	return err
 }
 
 const getAllUsageCreditsUsedBetween = `-- name: GetAllUsageCreditsUsedBetween :many

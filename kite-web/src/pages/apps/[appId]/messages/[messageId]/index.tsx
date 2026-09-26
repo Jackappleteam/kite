@@ -5,15 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useMessageUpdateMutation } from "@/lib/api/mutations";
-import { useMessage, useMessageInstances } from "@/lib/hooks/api";
+import { useMessage } from "@/lib/hooks/api";
 import { useBeforePageExit } from "@/lib/hooks/exit";
 import { useAppId, useMessageId } from "@/lib/hooks/params";
 import { messageSchema, parseMessageData } from "@/lib/message/schemaRestore";
 import {
   CurrentMessageStoreProvider,
-  getMessage,
   useCurrentFlowStore,
-  useDocumentStoreApi,
+  useCurrentMessage,
+  useCurrentMessageStore,
 } from "@/lib/message/state";
 import { ViewIcon } from "lucide-react";
 import Head from "next/head";
@@ -40,7 +40,7 @@ function AppMessagePageInner() {
     }
   });
 
-  const messageStore = useDocumentStoreApi();
+  const messageStore = useCurrentMessageStore();
   const flowStore = useCurrentFlowStore();
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -72,7 +72,7 @@ function AppMessagePageInner() {
       const data = parseMessageData(message.data);
 
       ignoreChange.current = true;
-      messageStore.getState().replaceAll(data);
+      messageStore.getState().replace(data);
       messageStore.temporal.getState().clear();
       flowStore.getState().replaceAll(message.flow_sources);
       ignoreChange.current = false;
@@ -81,9 +81,6 @@ function AppMessagePageInner() {
     }
   }, [message, messageStore, flowStore]);
 
-  const instances = useMessageInstances();
-  const hasInstances = !!instances?.length;
-
   const updateMutation = useMessageUpdateMutation(useAppId(), useMessageId());
 
   const save = useCallback(() => {
@@ -91,7 +88,7 @@ function AppMessagePageInner() {
 
     setIsSaving(true);
 
-    const data = getMessage(messageStore);
+    const data = messageStore.getState();
     const flowSources = flowStore.getState().flowSources;
 
     updateMutation.mutate(
@@ -104,11 +101,7 @@ function AppMessagePageInner() {
       {
         onSuccess(res) {
           if (res.success) {
-            toast.success("Message saved!", {
-              description: hasInstances
-                ? "Messages you already sent keep the old version until you update them in the Send Message dialog."
-                : undefined,
-            });
+            toast.success("Message saved!");
           } else {
             toast.error(
               `Failed to update message: ${res.error.message} (${res.error.code})`
@@ -123,7 +116,6 @@ function AppMessagePageInner() {
     );
   }, [
     message,
-    hasInstances,
     updateMutation,
     setIsSaving,
     setHasUnsavedChanges,

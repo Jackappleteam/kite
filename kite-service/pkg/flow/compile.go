@@ -23,83 +23,7 @@ func CompileComponentButton(data FlowData) (*CompiledFlowNode, error) {
 }
 
 func CompileEventListener(data FlowData) (*CompiledFlowNode, error) {
-	entry, err := compile(data, FlowNodeTypeEntryEvent)
-	if err != nil {
-		return nil, err
-	}
-
-	if entry.IsScheduleEntry() {
-		// Scheduled runs have no interaction to respond to, until a button
-		// sent by the flow is clicked.
-		if node := firstWithoutInteraction(entry, isInteractionOnly); node != nil {
-			return nil, fmt.Errorf("block %s can't be used in scheduled event listeners outside of button branches", node.Type)
-		}
-	}
-
-	return entry, nil
-}
-
-// firstWithoutInteraction returns the first node matching match that runs
-// before any component interaction, i.e. not in a component branch.
-func firstWithoutInteraction(entry *CompiledFlowNode, match func(FlowNodeType) bool) *CompiledFlowNode {
-	return firstInExecution([]*CompiledFlowNode{entry}, func(n *CompiledFlowNode) bool {
-		return match(n.Type)
-	})
-}
-
-// firstInExecution is like FirstMatching, but only visits nodes that run in
-// the same execution as nodes. Component branches and what follows a modal
-// only run later, when the user clicks or submits.
-func firstInExecution(nodes []*CompiledFlowNode, match func(*CompiledFlowNode) bool) *CompiledFlowNode {
-	visited := make(map[string]bool)
-	queue := slices.Clone(nodes)
-	for len(queue) > 0 {
-		node := queue[0]
-		queue = queue[1:]
-		if visited[node.ID] {
-			continue
-		}
-		visited[node.ID] = true
-
-		if match(node) {
-			return node
-		}
-		queue = append(queue, node.sameExecutionChildren()...)
-	}
-	return nil
-}
-
-func (n *CompiledFlowNode) sameExecutionChildren() []*CompiledFlowNode {
-	if n.Type == FlowNodeTypeSuspendResponseModal {
-		return nil
-	}
-
-	res := slices.Clone(n.Children.Default)
-	for handle, children := range n.Children.Handles {
-		if !strings.HasPrefix(handle, "component_") {
-			res = append(res, children...)
-		}
-	}
-	return res
-}
-
-// runsUnder reports whether n runs in the same execution as the children of
-// ancestor, e.g. inside a loop or error handler rather than in a button
-// branch of a block inside it.
-func (n *CompiledFlowNode) runsUnder(children []*CompiledFlowNode) bool {
-	return firstInExecution(children, func(c *CompiledFlowNode) bool { return c == n }) != nil
-}
-
-func isInteractionOnly(t FlowNodeType) bool {
-	switch t {
-	case FlowNodeTypeActionResponseCreate,
-		FlowNodeTypeActionResponseEdit,
-		FlowNodeTypeActionResponseDelete,
-		FlowNodeTypeActionResponseDefer,
-		FlowNodeTypeSuspendResponseModal:
-		return true
-	}
-	return false
+	return compile(data, FlowNodeTypeEntryEvent)
 }
 
 func compile(data FlowData, entryType FlowNodeType) (*CompiledFlowNode, error) {
@@ -192,10 +116,6 @@ func (n *CompiledFlowNode) IsComponentButtonEntry() bool {
 
 func (n *CompiledFlowNode) IsEventListenerEntry() bool {
 	return n.Type == FlowNodeTypeEntryEvent
-}
-
-func (n *CompiledFlowNode) IsScheduleEntry() bool {
-	return n.Type == FlowNodeTypeEntryEvent && n.Data.EventType == EventTypeScheduleCron
 }
 
 func (n *CompiledFlowNode) IsCommandEntry() bool {
@@ -509,13 +429,6 @@ func (n *CompiledFlowNode) EventListenerType() string {
 	return n.Data.EventType
 }
 
-func (n *CompiledFlowNode) EventScheduleCron() string {
-	if !n.IsScheduleEntry() {
-		return ""
-	}
-	return n.Data.EventScheduleCron
-}
-
 func (n *CompiledFlowNode) FilterEvent(ctx *FlowContext) (bool, error) {
 	if len(n.Parents.Default) == 0 {
 		return true, nil
@@ -696,33 +609,28 @@ func (n *CompiledFlowNode) findChildWithID(nodeID string, includeSubFlows bool, 
 // Handle-based children are included, so nodes behind condition branches and
 // button handles are considered too.
 func (n *CompiledFlowNode) FirstChildMatching(match func(*CompiledFlowNode) bool) *CompiledFlowNode {
-	return firstMatching(n.orderedChildren(), map[string]bool{n.ID: true}, match)
+	return n.firstChildMatching(make(map[string]bool), match)
 }
 
-// FirstMatching is like FirstChildMatching, but starts from the given nodes
-// instead of all children of a node.
-func FirstMatching(nodes []*CompiledFlowNode, match func(*CompiledFlowNode) bool) *CompiledFlowNode {
-	return firstMatching(nodes, make(map[string]bool), match)
-}
-
-func firstMatching(
-	nodes []*CompiledFlowNode,
+func (n *CompiledFlowNode) firstChildMatching(
 	visited map[string]bool,
 	match func(*CompiledFlowNode) bool,
 ) *CompiledFlowNode {
-	for _, node := range nodes {
+	if visited[n.ID] {
+		return nil
+	}
+	visited[n.ID] = true
+
+	children := n.orderedChildren()
+
+	for _, node := range children {
 		if match(node) {
 			return node
 		}
 	}
 
-	for _, node := range nodes {
-		if visited[node.ID] {
-			continue
-		}
-		visited[node.ID] = true
-
-		if found := firstMatching(node.orderedChildren(), visited, match); found != nil {
+	for _, node := range children {
+		if found := node.firstChildMatching(visited, match); found != nil {
 			return found
 		}
 	}

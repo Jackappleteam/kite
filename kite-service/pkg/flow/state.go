@@ -2,7 +2,6 @@ package flow
 
 import (
 	"encoding/json"
-	"slices"
 
 	"github.com/kitecloud/kite/kite-service/pkg/thing"
 )
@@ -10,19 +9,6 @@ import (
 type FlowContextState struct {
 	NodeStates  map[string]*FlowContextNodeState `json:"node_states"`
 	Temporaries map[string]thing.Thing           `json:"temporaries"`
-
-	// Triggers holds the interactions or events of earlier executions, oldest
-	// first. It's only set in resumed executions.
-	Triggers []FlowTrigger `json:"triggers,omitempty"`
-
-	// ResumeTrigger is the interaction or event a durable sleep continues
-	// with. It's kept apart from Triggers, which are only earlier executions.
-	ResumeTrigger *FlowTrigger `json:"resume_trigger,omitempty"`
-
-	// DurableSleeps counts the durable sleeps of this execution, including the
-	// ones it resumed from, so a cycle through a Wait block can't keep the flow
-	// alive forever. Clicks and submits start a new execution from zero.
-	DurableSleeps int `json:"durable_sleeps,omitempty"`
 }
 
 func NewFlowContextState() *FlowContextState {
@@ -33,12 +19,13 @@ func NewFlowContextState() *FlowContextState {
 }
 
 func (s FlowContextState) MarshalJSON() ([]byte, error) {
-	// The alias drops this method so json.Marshal doesn't recurse.
-	type state FlowContextState
-	aux := state(s)
-	aux.NodeStates = make(map[string]*FlowContextNodeState, len(s.NodeStates))
-	aux.Temporaries = make(map[string]thing.Thing, len(s.Temporaries))
-
+	aux := struct {
+		NodeStates  map[string]*FlowContextNodeState `json:"node_states"`
+		Temporaries map[string]thing.Thing           `json:"temporaries"`
+	}{
+		NodeStates:  make(map[string]*FlowContextNodeState, len(s.NodeStates)),
+		Temporaries: make(map[string]thing.Thing, len(s.Temporaries)),
+	}
 	// We don't want to serialize empty node states
 	for k, v := range s.NodeStates {
 		if !v.IsEmpty() {
@@ -100,10 +87,10 @@ func (s *FlowContextState) SetTemporary(name string, value thing.Thing) {
 }
 
 func (s *FlowContextState) Copy() FlowContextState {
-	// Triggers are never mutated, only replaced, so they can be shared.
-	copy := *s
-	copy.NodeStates = make(map[string]*FlowContextNodeState, len(s.NodeStates))
-	copy.Temporaries = make(map[string]thing.Thing, len(s.Temporaries))
+	copy := FlowContextState{
+		NodeStates:  make(map[string]*FlowContextNodeState, len(s.NodeStates)),
+		Temporaries: make(map[string]thing.Thing, len(s.Temporaries)),
+	}
 
 	for k, v := range s.NodeStates {
 		if !v.IsEmpty() {
@@ -118,23 +105,6 @@ func (s *FlowContextState) Copy() FlowContextState {
 	}
 
 	return copy
-}
-
-// recordTrigger stores the trigger of the current execution before the state is
-// saved in a resume point.
-func (s *FlowContextState) recordTrigger(data FlowContextData) {
-	trigger := newFlowTrigger(data)
-	if trigger == nil {
-		return
-	}
-
-	// Copies share the slice, so it's rebuilt instead of appended to. The first
-	// trigger is always kept since it started the flow.
-	triggers := append(slices.Clone(s.Triggers), *trigger)
-	if len(triggers) > maxStoredTriggers {
-		triggers = slices.Delete(triggers, 1, len(triggers)-maxStoredTriggers+1)
-	}
-	s.Triggers = triggers
 }
 
 func (s *FlowContextState) Serialize() ([]byte, error) {

@@ -1,65 +1,39 @@
 import { NodeProps } from "@/lib/flow/dataSchema";
 import { suspendColor } from "@/lib/flow/nodes";
-import {
-  collectComponentGroups,
-  componentHandleId,
-  getComponentHandleIds,
-} from "@/lib/flow/resume";
-import {
-  ComponentData,
-  ComponentTypeStringSelect,
-} from "@/lib/types/message.gen";
-import { Position, useUpdateNodeInternals } from "@xyflow/react";
-import { ListIcon, MousePointerClickIcon } from "lucide-react";
+import { ComponentData } from "@/lib/types/message.gen";
+import { Position } from "@xyflow/react";
+import { MousePointerClickIcon } from "lucide-react";
 import { buttonColors } from "../message/MessageComponentButton";
 import FlowNodeBase from "./FlowNodeBase";
 import FlowNodeHandle from "./FlowNodeHandle";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 
 export default function FlowNodeActionMessage(props: NodeProps) {
-  const componentGroups = useMemo(
-    () => collectComponentGroups(props.data.message_data?.components || []),
-    [props.data.message_data]
-  );
-  const hasComponents = componentGroups.length > 0;
-
-  // React Flow only re-measures handles when the node resizes, so swapping a
-  // component for another of the same size would leave the new handle unknown.
-  const updateNodeInternals = useUpdateNodeInternals();
-  const handleIds = useMemo(
-    () =>
-      getComponentHandleIds(props.data.message_data?.components || []).join(
-        ","
-      ),
-    [props.data.message_data]
-  );
-  useEffect(() => {
-    updateNodeInternals(props.id);
-  }, [handleIds, props.id, updateNodeInternals]);
+  const components = useMemo(() => {
+    const messageData = props.data.message_data;
+    return messageData?.components || [];
+  }, [props.data.message_data]);
 
   return (
     <div className="relative">
       <FlowNodeBase
         {...props}
-        highlight={hasComponents}
-        color={hasComponents ? suspendColor : undefined}
+        highlight={components?.length > 0}
+        color={components?.length > 0 ? suspendColor : undefined}
         showId
       >
         <FlowNodeHandle type="target" position={Position.Top} />
         <FlowNodeHandle
           type="source"
-          position={hasComponents ? Position.Right : Position.Bottom}
+          position={components?.length > 0 ? Position.Right : Position.Bottom}
         />
       </FlowNodeBase>
 
       <div className="flex flex-col mt-2 gap-5">
-        {componentGroups.map((group) => (
-          <div
-            key={group[0].id}
-            className="flex items-center justify-left gap-2"
-          >
-            {group.map((comp) => (
-              <ComponentHandle comp={comp} key={comp.id} />
+        {components?.map((row) => (
+          <div key={row.id} className="flex items-center justify-left gap-2">
+            {row.components?.map((comp) => (
+              <ButtonHandle comp={comp} key={comp.id} />
             ))}
           </div>
         ))}
@@ -68,12 +42,12 @@ export default function FlowNodeActionMessage(props: NodeProps) {
   );
 }
 
-function ComponentHandle({ comp }: { comp: ComponentData }) {
-  const isSelect = comp.type === ComponentTypeStringSelect;
-  const color = isSelect
-    ? buttonColors[2]
-    : buttonColors[(comp.style ?? 1) as keyof typeof buttonColors];
-  const Icon = isSelect ? ListIcon : MousePointerClickIcon;
+function ButtonHandle({ comp }: { comp: ComponentData }) {
+  if (comp.style === 5) {
+    return null;
+  }
+
+  const color = buttonColors[(comp.style ?? 1) as keyof typeof buttonColors];
 
   return (
     <div className="relative">
@@ -84,18 +58,21 @@ function ComponentHandle({ comp }: { comp: ComponentData }) {
         }}
         key={comp.id}
       >
-        <Icon className="w-4 h-4" />
-        <div className="text-sm truncate">
-          {isSelect ? comp.placeholder || "Select Menu" : comp.label}
-        </div>
+        <MousePointerClickIcon className="w-4 h-4" />
+        <div className="text-sm truncate">{comp.label}</div>
       </div>
 
       <FlowNodeHandle
         type="source"
         position={Position.Bottom}
-        id={componentHandleId(comp.id)}
+        id={buttonHandleId(comp)}
         size="small"
       />
     </div>
   );
+}
+
+function buttonHandleId(comp: ComponentData) {
+  // NOTE: The format has to match with the backend for the resume point to work
+  return `component_${comp.id}`;
 }

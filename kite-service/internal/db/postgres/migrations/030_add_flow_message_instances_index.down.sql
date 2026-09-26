@@ -1,1 +1,0 @@
-DROP INDEX CONCURRENTLY IF EXISTS message_instances_flow_message_id_created_at;

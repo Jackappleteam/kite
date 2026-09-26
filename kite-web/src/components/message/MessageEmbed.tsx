@@ -1,23 +1,40 @@
 import { Card } from "@/components/ui/card";
 import MessageCollapsibleSection from "./MessageCollapsibleSection";
-import { useDocument, useNodeActions } from "@/lib/message/state";
-import { EmbedNode, NodeId } from "@/lib/message/document";
-import { nodeScope } from "@/lib/message/validationStore";
+import { useCurrentMessage } from "@/lib/message/state";
+import { useShallow } from "zustand/react/shallow";
 import { useMemo } from "react";
 import { colorIntToHex } from "@/tools/common/utils/color";
-import MessageNodeActions from "./MessageNodeActions";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  CopyIcon,
+  TrashIcon,
+} from "lucide-react";
 import MessageEmbedBody from "./MessageEmbedBody";
 import MessageEmbedAuthor from "./MessageEmbedAuthor";
 import MessageEmbedFooter from "./MessageEmbedFooter";
 import MessageEmbedImages from "./MessageEmbedImages";
 import MessageEmbedFields from "./MessageEmbedFields";
 
-export default function MessageEmbed({ embedId }: { embedId: NodeId }) {
-  // Only the color, so typing in the embed doesn't re-render every field below.
-  const color = useDocument(
-    (state) => (state.nodes[embedId] as EmbedNode | undefined)?.color
+export default function MessageEmbed({
+  embedId,
+  embedIndex,
+}: {
+  embedId: number;
+  embedIndex: number;
+}) {
+  const embedCount = useCurrentMessage((state) => state.embeds.length);
+
+  const [moveUp, moveDown, duplicate, remove] = useCurrentMessage(
+    useShallow((state) => [
+      state.moveEmbedUp,
+      state.moveEmbedDown,
+      state.duplicateEmbed,
+      state.deleteEmbed,
+    ])
   );
-  const actions = useNodeActions(embedId);
+
+  const color = useCurrentMessage((state) => state.embeds[embedIndex]?.color);
 
   const colorHex = useMemo(
     () => (color !== undefined ? colorIntToHex(color) : "#1f2225"),
@@ -32,18 +49,47 @@ export default function MessageEmbed({ embedId }: { embedId: NodeId }) {
       }}
     >
       <MessageCollapsibleSection
-        title={`Embed ${actions.index + 1}`}
+        title={`Embed ${embedIndex + 1}`}
         size="lg"
-        validation={nodeScope(embedId)}
+        valiationPathPrefix={`embeds.${embedIndex}`}
         defaultOpen={false}
-        actions={<MessageNodeActions actions={actions} size="lg" />}
+        actions={
+          <>
+            {embedIndex > 0 && (
+              <ChevronUpIcon
+                className="h-6 w-6"
+                onClick={() => moveUp(embedIndex)}
+                role="button"
+              />
+            )}
+            {embedIndex < embedCount - 1 && (
+              <ChevronDownIcon
+                className="h-6 w-6"
+                onClick={() => moveDown(embedIndex)}
+                role="button"
+              />
+            )}
+            {embedCount < 10 && (
+              <CopyIcon
+                className="h-5 w-5"
+                onClick={() => duplicate(embedIndex)}
+                role="button"
+              />
+            )}
+            <TrashIcon
+              className="h-5 w-5"
+              onClick={() => remove(embedIndex)}
+              role="button"
+            />
+          </>
+        }
         className="space-y-5"
       >
-        <MessageEmbedAuthor embedId={embedId} />
-        <MessageEmbedBody embedId={embedId} />
-        <MessageEmbedImages embedId={embedId} />
-        <MessageEmbedFooter embedId={embedId} />
-        <MessageEmbedFields embedId={embedId} />
+        <MessageEmbedAuthor embedIndex={embedIndex} embedId={embedId} />
+        <MessageEmbedBody embedIndex={embedIndex} embedId={embedId} />
+        <MessageEmbedImages embedIndex={embedIndex} embedId={embedId} />
+        <MessageEmbedFooter embedIndex={embedIndex} embedId={embedId} />
+        <MessageEmbedFields embedIndex={embedIndex} embedId={embedId} />
       </MessageCollapsibleSection>
     </Card>
   );

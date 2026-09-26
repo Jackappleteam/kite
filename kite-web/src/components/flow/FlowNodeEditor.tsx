@@ -1,19 +1,10 @@
-import { discordEmojiUrl } from "@/tools/common/utils/discordCdn";
 import {
   decodePermissionsBitset,
   encodePermissionsBitset,
   permissionBits,
 } from "@/lib/discord/permissions";
-import {
-  getNodeCreditsCost,
-  getNodeId,
-  getOwnedChildTypes,
-  useNodeValues,
-} from "@/lib/flow/nodes";
-import { activityTypeOptions, statusOptions } from "@/lib/discord/presence";
-import { useAppFeature, useMessages, useVariables } from "@/lib/hooks/api";
-import { getFlowCreditsCost } from "@/lib/flow/schedule";
-import { EventTypeScheduleCron } from "@/lib/types/flow.gen";
+import { getNodeId, useNodeValues } from "@/lib/flow/nodes";
+import { useMessages, useVariables } from "@/lib/hooks/api";
 import { useAppId } from "@/lib/hooks/params";
 import {
   CommandArgumentChoiceData,
@@ -21,7 +12,6 @@ import {
   HTTPRequestData,
   ModalComponentData,
   PermissionOverwriteData,
-  StatusData,
 } from "@/lib/types/flow.gen";
 import { Node, useNodes, useReactFlow, useStoreApi } from "@xyflow/react";
 import {
@@ -37,19 +27,15 @@ import {
   XIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { NodeData, NodeProps } from "../../lib/flow/dataSchema";
 import MessageCreateDialog from "../app/MessageCreateDialog";
 import VariableCreateDialog from "../app/VariableCreateDialog";
 import EmojiPicker from "../common/EmojiPicker";
 import JsonEditor from "../common/JsonEditor";
 import PlaceholderInput from "../common/PlaceholderInput";
-import ScheduleCronPreview, {
-  ScheduleCronHelp,
-} from "../common/ScheduleCronPreview";
 import Twemoji from "../common/Twemoji";
 import MessageEditorDialog from "../message/MessageEditorDialog";
-import { hasComponentsV2Flag } from "@/lib/message/schema";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import {
@@ -109,13 +95,13 @@ const intputs: Record<string, any> = {
   command_integrations: CommandIntegrationsInput,
   command_permissions: CommandPermissionsInput,
   event_type: EventTypeInput,
-  event_schedule_cron: EventScheduleCronInput,
   event_filter_target: EventFilterTargetInput,
   event_filter_mode: EventFilterModeInput,
   event_filter_value: EventFilterValueInput,
   message_data: MessageDataInput,
   message_template_id: MessageTemplateInput,
   message_target: MessageTargetInput,
+  message_bulk_delete_count: MessageBulkDeleteCountInput,
   emoji_data: EmojiDataInput,
   response_target: ResponseTargetInput,
   message_ephemeral: MessageEphemeralInput,
@@ -123,9 +109,6 @@ const intputs: Record<string, any> = {
   channel_data: ChannelDataInput,
   thread_data: ThreadDataInput,
   channel_target: ChannelTargetInput,
-  voice_self_mute: VoiceSelfMuteInput,
-  voice_self_deaf: VoiceSelfDeafInput,
-  status_data: StatusDataInput,
   role_data: RoleDataInput,
   role_target: RoleTargetInput,
   variable_id: VariableIdInput,
@@ -198,9 +181,7 @@ export default function FlowNodeEditor({ nodeId }: Props) {
   const nodes = useNodes<Node<NodeData>>();
 
   const node = nodes.find((n) => n.id === nodeId);
-  // Duplicating a block doesn't copy the blocks it owns, e.g. the branches of
-  // a condition.
-  const ownsBlocks = getOwnedChildTypes(node?.type ?? "").length > 0;
+  const nodeValues = useNodeValues(node?.type ?? "");
 
   const data = node?.data;
 
@@ -228,7 +209,7 @@ export default function FlowNodeEditor({ nodeId }: Props) {
   }
 
   function duplicateNode() {
-    if (!node || ownsBlocks) return;
+    if (!node || nodeValues.ownsChildren) return;
 
     const newNode = {
       ...node,
@@ -243,12 +224,6 @@ export default function FlowNodeEditor({ nodeId }: Props) {
   }
 
   const values = useNodeValues(node?.type!);
-
-  const appId = useAppId();
-  const premiumFeature = values.premiumFeature;
-  const hasPremiumFeature = useAppFeature((f) =>
-    premiumFeature ? !!f[premiumFeature] : true
-  );
 
   const errors: Record<string, string> = useMemo(() => {
     if (!values.dataSchema) return {};
@@ -265,7 +240,10 @@ export default function FlowNodeEditor({ nodeId }: Props) {
 
   if (!node || !data) return null;
 
-  const creditsCost = getNodeCreditsCost(values, data);
+  const creditsCost =
+    typeof values.creditsCost === "function"
+      ? values.creditsCost(data)
+      : values.creditsCost;
 
   const docsPage = nodeTypeDocsPage(node.type!);
 
@@ -311,19 +289,6 @@ export default function FlowNodeEditor({ nodeId }: Props) {
             </div>
           </div>
           <div className="space-y-3 flex-auto">
-            {hasPremiumFeature === false && (
-              <div className="text-sm text-muted-foreground bg-muted rounded p-3">
-                This block requires{" "}
-                <Link
-                  href={`/apps/${appId}/premium`}
-                  target="_blank"
-                  className="text-primary hover:underline"
-                >
-                  Premium
-                </Link>{" "}
-                and fails without it.
-              </div>
-            )}
             {values.dataFields.map((field) => {
               const Input = intputs[field];
               if (!Input) return null;
@@ -351,7 +316,7 @@ export default function FlowNodeEditor({ nodeId }: Props) {
                   <TrashIcon className="h-5 w-5" />
                   <div>Delete Block</div>
                 </Button>
-                {!ownsBlocks && (
+                {!nodeValues.ownsChildren && (
                   <Button
                     variant="secondary"
                     onClick={duplicateNode}
@@ -717,9 +682,6 @@ function CommandIntegrationsInput({ data, updateData, errors }: InputProps) {
 }
 
 function EventTypeInput({ data, updateData, errors }: InputProps) {
-  // Scheduled listeners can't become Discord listeners or the other way around.
-  if (data.event_type === EventTypeScheduleCron) return null;
-
   return (
     <BaseInput
       type="select"
@@ -736,38 +698,6 @@ function EventTypeInput({ data, updateData, errors }: InputProps) {
       updateValue={(v) => updateData({ event_type: v || undefined })}
       errors={errors}
     />
-  );
-}
-
-function EventScheduleCronInput(props: InputProps) {
-  if (props.data.event_type !== EventTypeScheduleCron) return null;
-  return <ScheduleCronInput {...props} />;
-}
-
-function ScheduleCronInput({ data, updateData, errors }: InputProps) {
-  const nodes = useNodes();
-
-  const cron = data.event_schedule_cron || "";
-  const creditsPerRun = useMemo(() => getFlowCreditsCost(nodes), [nodes]);
-
-  return (
-    <div className="space-y-2">
-      <BaseInput
-        field="event_schedule_cron"
-        title="Schedule"
-        description={
-          <>
-            <ScheduleCronHelp /> Add a leading seconds field for sub-minute
-            schedules.
-          </>
-        }
-        value={cron}
-        updateValue={(v) => updateData({ event_schedule_cron: v || undefined })}
-        errors={errors}
-        placeholder="*/5 * * * *"
-      />
-      <ScheduleCronPreview cron={cron} creditsPerRun={creditsPerRun} />
-    </div>
   );
 }
 
@@ -1217,17 +1147,12 @@ function UserTargetInput({ data, updateData, errors }: InputProps) {
   );
 }
 
-function GuildTargetInput({ type, data, updateData, errors }: InputProps) {
+function GuildTargetInput({ data, updateData, errors }: InputProps) {
   return (
     <BaseInput
       type="text"
       field="guild_target"
       title="Target Guild"
-      description={
-        type === "action_guild_get"
-          ? undefined
-          : "Leave empty to use the server the flow runs in. Required in scheduled event listeners."
-      }
       value={data.guild_target || ""}
       updateValue={(v) => updateData({ guild_target: v || undefined })}
       errors={errors}
@@ -1379,30 +1304,25 @@ function MessageDataInput({ data, updateData, errors }: InputProps) {
     return null;
   }
 
-  // Components v2 messages have no content, their text lives in the components.
-  const componentsV2 = hasComponentsV2Flag(data.message_data?.flags);
-
   return (
     <>
-      {!componentsV2 && (
-        <BaseInput
-          type="textarea"
-          field="message_data"
-          title="Text"
-          description="Edit the message content here or click below to have a full message editor with support for embeds and components."
-          value={data.message_data?.content || ""}
-          updateValue={(v) =>
-            updateData({
-              message_data: {
-                ...data.message_data,
-                content: v || undefined,
-              },
-            })
-          }
-          errors={errors}
-          placeholders
-        />
-      )}
+      <BaseInput
+        type="textarea"
+        field="message_data"
+        title="Text"
+        description="Edit the message content here or click below to have a full message editor with support for embeds and components."
+        value={data.message_data?.content || ""}
+        updateValue={(v) =>
+          updateData({
+            message_data: {
+              ...data.message_data,
+              content: v || undefined,
+            },
+          })
+        }
+        errors={errors}
+        placeholders
+      />
 
       <MessageEditorDialog
         onClose={(v) => updateData({ message_data: v })}
@@ -1442,6 +1362,23 @@ function MessageTargetInput({ data, updateData, errors }: InputProps) {
       title="Target Message"
       value={data.message_target || ""}
       updateValue={(v) => updateData({ message_target: v || undefined })}
+      errors={errors}
+      placeholders
+    />
+  );
+}
+
+function MessageBulkDeleteCountInput({ data, updateData, errors }: InputProps) {
+  return (
+    <BaseInput
+      type="text"
+      field="message_bulk_delete_count"
+      title="Message Count"
+      description="Number of recent messages to delete. Messages older than 14 days are skipped."
+      value={data.message_bulk_delete_count || ""}
+      updateValue={(v) =>
+        updateData({ message_bulk_delete_count: v || undefined })
+      }
       errors={errors}
       placeholders
     />
@@ -1621,6 +1558,7 @@ function ModalDataInput({ data, updateData, errors }: InputProps) {
                       })
                     }
                     errors={errors}
+                    placeholders
                   />
                   <BaseInput
                     type="text"
@@ -1707,19 +1645,6 @@ function ChannelDataInput({ data, updateData, errors }: InputProps) {
       channel_data: { ...data.channel_data, permission_overwrites: [] },
     });
   }, [updateData, data]);
-
-  const removeOverwrite = useCallback(
-    (i: number) => {
-      updateData({
-        channel_data: {
-          ...data.channel_data,
-          permission_overwrites:
-            data.channel_data?.permission_overwrites?.filter((_, j) => j !== i),
-        },
-      });
-    },
-    [updateData, data]
-  );
 
   const updateOverwrite = useCallback(
     (i: number, newData: Partial<PermissionOverwriteData>) => {
@@ -2003,21 +1928,17 @@ function ChannelDataInput({ data, updateData, errors }: InputProps) {
                   }
                   errors={errors}
                 />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex gap-2"
-                  onClick={() => removeOverwrite(i)}
-                >
-                  <TrashIcon className="h-4 w-4" />
-                  <div>Remove Overwrite</div>
-                </Button>
               </Card>
             ))}
           </div>
 
           <div className="flex space-x-3">
-            <Button onClick={addOverwrite}>Add Overwrite</Button>
+            <Button
+              onClick={addOverwrite}
+              disabled={(data.modal_data?.components?.length || 0) >= 5}
+            >
+              Add Overwrite
+            </Button>
             <Button variant="outline" onClick={clearOverwrites}>
               Clear Overwrites
             </Button>
@@ -2157,86 +2078,6 @@ function ChannelTargetInput({ data, updateData, errors }: InputProps) {
       errors={errors}
       placeholders
     />
-  );
-}
-
-function VoiceSelfMuteInput({ data, updateData, errors }: InputProps) {
-  return (
-    <BaseCheckbox
-      field="voice_self_mute"
-      title="Mute Self"
-      description="If enabled, the bot joins the voice channel muted."
-      value={!!data.voice_self_mute}
-      updateValue={(v) => updateData({ voice_self_mute: v || undefined })}
-      errors={errors}
-    />
-  );
-}
-
-function VoiceSelfDeafInput({ data, updateData, errors }: InputProps) {
-  return (
-    <BaseCheckbox
-      field="voice_self_deaf"
-      title="Deafen Self"
-      description="If enabled, the bot joins the voice channel deafened."
-      value={!!data.voice_self_deaf}
-      updateValue={(v) => updateData({ voice_self_deaf: v || undefined })}
-      errors={errors}
-    />
-  );
-}
-
-function StatusDataInput({ data, updateData, errors }: InputProps) {
-  const updateField = (newData: Partial<StatusData>) =>
-    updateData({ status_data: { ...data.status_data, ...newData } });
-
-  return (
-    <>
-      <BaseInput
-        type="select"
-        field="status_data.status"
-        title="Status"
-        options={statusOptions}
-        value={data.status_data?.status || "online"}
-        updateValue={(v) => updateField({ status: v || undefined })}
-        errors={errors}
-      />
-      <BaseInput
-        type="select"
-        field="status_data.activity_type"
-        title="Activity Type"
-        options={activityTypeOptions}
-        value={(data.status_data?.activity_type || 0).toString()}
-        updateValue={(v) =>
-          updateField({
-            activity_type: parseInt(v) || undefined,
-            // Only streaming activities have a URL
-            activity_url:
-              v === "1" ? data.status_data?.activity_url : undefined,
-          })
-        }
-        errors={errors}
-      />
-      <BaseInput
-        field="status_data.activity_name"
-        title="Activity Name"
-        value={data.status_data?.activity_name || ""}
-        updateValue={(v) => updateField({ activity_name: v || undefined })}
-        errors={errors}
-        placeholders
-      />
-      {data.status_data?.activity_type === 1 && (
-        <BaseInput
-          field="status_data.activity_url"
-          title="Stream URL"
-          description="Twitch or YouTube URL shown for the streaming activity."
-          value={data.status_data?.activity_url || ""}
-          updateValue={(v) => updateField({ activity_url: v || undefined })}
-          errors={errors}
-          placeholders
-        />
-      )}
-    </>
   );
 }
 
@@ -2697,7 +2538,7 @@ function ControlSleepDurationInput({ data, updateData, errors }: InputProps) {
     <BaseInput
       field="sleep_duration_seconds"
       title="Wait Duration"
-      description="The number of seconds to wait before continuing, up to 30 days. Waits over 5 seconds end the current run and continue later, so responses only work if the flow continues within 15 minutes."
+      description="The number of seconds to wait before continuing."
       value={data.sleep_duration_seconds || ""}
       updateValue={(v) =>
         updateData({
@@ -2728,7 +2569,7 @@ function BaseInput({
   field: string;
   options?: { value: string; label: string }[];
   title: string;
-  description?: ReactNode;
+  description?: string;
   errors: Record<string, string>;
   value: string;
   placeholder?: string;
@@ -3013,7 +2854,11 @@ function BaseEmojiPicker({
         <EmojiPicker onEmojiSelect={onChange}>
           <Button size="icon" variant="outline">
             {emoji?.id ? (
-              <img src={discordEmojiUrl(emoji.id)} alt="" className="h-6 w-6" />
+              <img
+                src={`https://cdn.discordapp.com/emojis/${emoji.id}.webp`}
+                alt=""
+                className="h-6 w-6"
+              />
             ) : emoji ? (
               <Twemoji
                 options={{

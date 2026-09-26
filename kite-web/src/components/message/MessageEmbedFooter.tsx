@@ -1,57 +1,65 @@
-import CollapsibleSection from "./MessageCollapsibleSection";
-import { useDocument, useDocumentStoreApi } from "@/lib/message/state";
 import { useShallow } from "zustand/react/shallow";
-import { EmbedNode, NodeId } from "@/lib/message/document";
-import { nodeField, nodeScope } from "@/lib/message/validationStore";
+import CollapsibleSection from "./MessageCollapsibleSection";
+import { useCurrentMessage } from "@/lib/message/state";
 import MessageInput from "./MessageInput";
 
-export default function MessageEmbedFooter({ embedId }: { embedId: NodeId }) {
-  const embed = useDocument(
-    useShallow((state) => {
-      const node = state.nodes[embedId] as EmbedNode | undefined;
-      return { footer: node?.footer, timestamp: node?.timestamp };
-    })
+export default function MessageEmbedFooter({
+  embedId,
+  embedIndex,
+}: {
+  embedId: number;
+  embedIndex: number;
+}) {
+  const [text, setText] = useCurrentMessage(
+    useShallow((state) => [
+      state.embeds[embedIndex]?.footer?.text,
+      state.setEmbedFooterText,
+    ])
   );
-  const { update } = useDocumentStoreApi().getState();
-
-  const setFooter = (patch: Partial<NonNullable<EmbedNode["footer"]>>) => {
-    const next = { ...embed.footer, ...patch };
-    update<EmbedNode>(embedId, {
-      footer: next.text || next.icon_url ? next : undefined,
-    });
-  };
+  const [iconUrl, setIconUrl] = useCurrentMessage(
+    useShallow((state) => [
+      state.embeds[embedIndex]?.footer?.icon_url,
+      state.setEmbedFooterIconUrl,
+    ])
+  );
+  const [timestamp, setTimestamp] = useCurrentMessage(
+    useShallow((state) => [
+      state.embeds[embedIndex]?.timestamp,
+      state.setEmbedTimestamp,
+    ])
+  );
 
   return (
     <CollapsibleSection
       title="Footer"
       size="md"
-      validation={nodeScope<EmbedNode>(embedId, ["footer"])}
+      valiationPathPrefix={`embeds.${embedIndex}.footer`}
       className="space-y-3"
     >
       <MessageInput
         type="text"
         label="Footer"
         maxLength={2048}
-        value={embed.footer?.text || ""}
-        onChange={(v) => setFooter({ text: v || undefined })}
-        validation={nodeField<EmbedNode>(embedId, "footer.text")}
+        value={text || ""}
+        onChange={(v) => setText(embedIndex, v || undefined)}
+        validationPath={`embeds.${embedIndex}.footer.text`}
         placeholders
       />
       <div className="flex space-x-3">
         <MessageInput
           type="url"
           label="Footer Icon URL"
-          value={embed.footer?.icon_url || ""}
-          onChange={(v) => setFooter({ icon_url: v || undefined })}
-          validation={nodeField<EmbedNode>(embedId, "footer.icon_url")}
+          value={iconUrl || ""}
+          onChange={(v) => setIconUrl(embedIndex, v || undefined)}
+          validationPath={`embeds.${embedIndex}.footer.icon_url`}
           imageUpload
         />
         <MessageInput
           type="date"
           label="Timestamp"
-          value={embed.timestamp}
-          onChange={(timestamp) => update<EmbedNode>(embedId, { timestamp })}
-          validation={nodeField<EmbedNode>(embedId, "timestamp")}
+          value={timestamp}
+          onChange={(v) => setTimestamp(embedIndex, v)}
+          validationPath={`embeds.${embedIndex}.timestamp`}
         />
       </div>
     </CollapsibleSection>

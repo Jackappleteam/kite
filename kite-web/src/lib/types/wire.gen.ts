@@ -21,13 +21,6 @@ export interface App {
   updated_at: string /* RFC3339 */;
 }
 export interface AppDiscordStatus {
-  statuses?: AppDiscordStatusEntry[];
-  active_id?: string;
-  rotate_enabled?: boolean;
-}
-export interface AppDiscordStatusEntry {
-  id: string;
-  label?: string;
   status?: string;
   activity_type?: number /* int */;
   activity_name?: string;
@@ -214,9 +207,6 @@ export interface BillingPlan {
   feature_max_messages: number /* int */;
   feature_max_event_listeners: number /* int */;
   feature_priority_support: boolean;
-  feature_rotating_status: boolean;
-  feature_max_scheduled_event_listeners: number /* int */;
-  feature_min_schedule_interval_seconds: number /* int */;
 }
 export type BillingPlanListResponse = (BillingPlan | undefined)[];
 
@@ -295,7 +285,6 @@ export interface EventListener {
   flow_source: FlowData;
   created_at: string /* RFC3339 */;
   updated_at: string /* RFC3339 */;
-  last_run_at: null | string /* RFC3339 */;
 }
 export interface EventListenerFilter {
 }
@@ -334,9 +323,6 @@ export interface Features {
   max_messages: number /* int */;
   max_event_listeners: number /* int */;
   priority_support: boolean;
-  rotating_status: boolean;
-  max_scheduled_event_listeners: number /* int */;
-  min_schedule_interval_seconds: number /* int */;
 }
 export type FeaturesGetResponse = Features;
 
@@ -462,23 +448,6 @@ export interface PluginInstanceUpdateEnabledRequest {
 }
 export type PluginInstanceUpdateEnabledResponse = PluginInstance;
 export type PluginInstanceDeleteResponse = Empty;
-
-//////////
-// source: share_code.go
-
-export interface ShareCode {
-  code: string;
-  type: string;
-  data: Record<string, any> | null;
-}
-export interface ShareCodeCreateRequest {
-  type: string;
-  data: Record<string, any> | null;
-}
-export interface ShareCodeCreateResponse {
-  code: string;
-}
-export type ShareCodeGetResponse = ShareCode;
 
 //////////
 // source: usage.go

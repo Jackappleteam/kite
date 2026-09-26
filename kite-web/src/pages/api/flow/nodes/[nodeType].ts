@@ -1,7 +1,6 @@
-import { getNodeCreditsCost, getNodeValues } from "@/lib/flow/nodes";
+import { getNodeValues } from "@/lib/flow/nodes";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { toJsonSchema } from "@/lib/flow/catalog";
-import { JsonSchema7Type } from "zod-to-json-schema";
+import { JsonSchema7Type, zodToJsonSchema } from "zod-to-json-schema";
 import env from "@/lib/env/server";
 
 type ResponseData = {
@@ -55,9 +54,16 @@ export default function handler(
 
   const values = getNodeValues(nodeType as string);
 
-  const dataSchema = values.dataSchema ? toJsonSchema(values.dataSchema) : null;
+  const dataSchema = values.dataSchema
+    ? zodToJsonSchema(values.dataSchema, {
+        $refStrategy: "none",
+      })
+    : null;
+
   const resultSchema = values.resultSchema
-    ? toJsonSchema(values.resultSchema)
+    ? zodToJsonSchema(values.resultSchema, {
+        $refStrategy: "none",
+      })
     : null;
 
   res.status(200).json({
@@ -68,6 +74,9 @@ export default function handler(
     dataSchema,
     resultSchema,
     dataFields: values.dataFields,
-    creditsCost: getNodeCreditsCost(values, {}) ?? null,
+    creditsCost:
+      typeof values.creditsCost === "function"
+        ? values.creditsCost({})
+        : values.creditsCost ?? null,
   });
 }

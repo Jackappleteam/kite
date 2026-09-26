@@ -1,12 +1,15 @@
 import { CodeIcon, PaintbrushIcon } from "lucide-react";
-import { useDocument } from "@/lib/message/state";
+import { useCurrentMessage } from "@/lib/message/state";
+import { useShallow } from "zustand/react/shallow";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import MessageControlsButton from "./MessageControlsButton";
 import MessageControlsUndo from "./MessageControlsUndo";
 import MessageJSONDialog from "./MessageJSONDialog";
 
 export default function MessageControls() {
-  const clearMessage = useDocument((state) => state.clear);
+  const [clearMessage, resetMessage] = useCurrentMessage(
+    useShallow((state) => [state.clear, state.reset])
+  );
 
   return (
     <div className="flex items-center justify-between space-x-3">

@@ -32,5 +32,4 @@ type MessageInstance struct {
 	FlowSources      map[string]flow.FlowData
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
-	LastUsedAt       time.Time
 }

@@ -9,13 +9,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/diamondburned/arikawa/v3/api"
 	"github.com/diamondburned/arikawa/v3/discord"
-	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/state"
 	disstore "github.com/diamondburned/arikawa/v3/state/store"
 	"github.com/diamondburned/arikawa/v3/utils/sendpart"
@@ -26,26 +24,17 @@ import (
 	"github.com/kitecloud/kite/kite-service/pkg/message"
 	"github.com/kitecloud/kite/kite-service/pkg/provider"
 	"github.com/kitecloud/kite/kite-service/pkg/thing"
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/responses"
-	"github.com/openai/openai-go/v2/shared"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/responses"
 	"gopkg.in/guregu/null.v4"
 )
-
-// FeatureProvider resolves the premium features an app has access to.
-type FeatureProvider interface {
-	AppFeatures(ctx context.Context, appID string) model.Features
-	AppFeaturesForApps(ctx context.Context, appIDs []string) (map[string]model.Features, error)
-}
 
 type DiscordProvider struct {
 	provider.MockDiscordProvider // TODO: remove this
 
-	appID           string
-	appStore        store.AppStore
-	featureProvider FeatureProvider
-	rateLimiter     *BlockRateLimiter
-	session         *state.State
+	appID    string
+	appStore store.AppStore
+	session  *state.State
 
 	interactionResponseMutex sync.Mutex
 	interactionsWithResponse map[discord.InteractionID]struct{}
@@ -54,16 +43,12 @@ type DiscordProvider struct {
 func NewDiscordProvider(
 	appID string,
 	appStore store.AppStore,
-	featureProvider FeatureProvider,
-	rateLimiter *BlockRateLimiter,
 	session *state.State,
 ) *DiscordProvider {
 	return &DiscordProvider{
-		appID:           appID,
-		appStore:        appStore,
-		featureProvider: featureProvider,
-		rateLimiter:     rateLimiter,
-		session:         session,
+		appID:    appID,
+		appStore: appStore,
+		session:  session,
 
 		interactionsWithResponse: make(map[discord.InteractionID]struct{}),
 	}
@@ -139,6 +124,15 @@ func (p *DiscordProvider) Message(ctx context.Context, channelID discord.Channel
 	}
 
 	return msg, nil
+}
+
+func (p *DiscordProvider) Messages(ctx context.Context, channelID discord.ChannelID, limit uint) ([]discord.Message, error) {
+	messages, err := p.session.Messages(channelID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get messages: %w", err)
+	}
+
+	return messages, nil
 }
 
 func (p *DiscordProvider) GuildRoles(ctx context.Context, guildID discord.GuildID) ([]discord.Role, error) {
@@ -251,6 +245,20 @@ func (p *DiscordProvider) DeleteMessage(
 	return nil
 }
 
+func (p *DiscordProvider) BulkDeleteMessages(
+	ctx context.Context,
+	channelID discord.ChannelID,
+	messageIDs []discord.MessageID,
+	reason api.AuditLogReason,
+) error {
+	err := p.session.DeleteMessages(channelID, messageIDs, reason)
+	if err != nil {
+		return fmt.Errorf("failed to bulk delete messages: %w", err)
+	}
+
+	return nil
+}
+
 func (p *DiscordProvider) CreateMessageReaction(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, emoji discord.APIEmoji) error {
 	err := p.session.React(channelID, messageID, emoji)
 	if err != nil {
@@ -264,24 +272,6 @@ func (p *DiscordProvider) DeleteMessageReaction(ctx context.Context, channelID d
 	err := p.session.Unreact(channelID, messageID, emoji)
 	if err != nil {
 		return fmt.Errorf("failed to delete message reaction: %w", err)
-	}
-
-	return nil
-}
-
-func (p *DiscordProvider) PinMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
-	err := p.session.PinMessage(channelID, messageID, reason)
-	if err != nil {
-		return fmt.Errorf("failed to pin message: %w", err)
-	}
-
-	return nil
-}
-
-func (p *DiscordProvider) UnpinMessage(ctx context.Context, channelID discord.ChannelID, messageID discord.MessageID, reason api.AuditLogReason) error {
-	err := p.session.UnpinMessage(channelID, messageID, reason)
-	if err != nil {
-		return fmt.Errorf("failed to unpin message: %w", err)
 	}
 
 	return nil
@@ -415,57 +405,6 @@ func (p *DiscordProvider) RemoveThreadMember(ctx context.Context, channelID disc
 	return nil
 }
 
-func (p *DiscordProvider) UpdateVoiceState(ctx context.Context, guildID discord.GuildID, channelID discord.ChannelID, selfMute bool, selfDeaf bool) error {
-	if err := p.allowGatewayCommand(); err != nil {
-		return err
-	}
-
-	err := p.session.SendGateway(ctx, &gateway.UpdateVoiceStateCommand{
-		GuildID:   guildID,
-		ChannelID: channelID,
-		SelfMute:  selfMute,
-		SelfDeaf:  selfDeaf,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to update voice state: %w", err)
-	}
-
-	return nil
-}
-
-func (p *DiscordProvider) UpdatePresence(ctx context.Context, status discord.Status, activity discord.Activity) error {
-	// Part of the same premium feature as rotating statuses in the app settings
-	if !p.featureProvider.AppFeatures(ctx, p.appID).RotatingStatus {
-		return fmt.Errorf("setting the status from a flow requires premium")
-	}
-	if err := p.allowGatewayCommand(); err != nil {
-		return err
-	}
-
-	err := p.session.SendGateway(ctx, &gateway.UpdatePresenceCommand{
-		Status:     status,
-		Activities: []discord.Activity{activity},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to update presence: %w", err)
-	}
-
-	return nil
-}
-
-func (p *DiscordProvider) allowGatewayCommand() error {
-	if !p.rateLimiter.Allow(p.appID, gatewayCommandRateLimit) {
-		return fmt.Errorf("blocks that change the status or voice state are rate limited, try again in a few seconds")
-	}
-	return nil
-}
-
-func (p *DiscordProvider) MarkInteractionResponded(interactionID discord.InteractionID) {
-	p.interactionResponseMutex.Lock()
-	defer p.interactionResponseMutex.Unlock()
-	p.interactionsWithResponse[interactionID] = struct{}{}
-}
-
 func (p *DiscordProvider) HasCreatedInteractionResponse(ctx context.Context, interactionID discord.InteractionID) (bool, error) {
 	p.interactionResponseMutex.Lock()
 	defer p.interactionResponseMutex.Unlock()
@@ -478,7 +417,7 @@ func (p *DiscordProvider) AutoDeferInteraction(
 	ctx context.Context,
 	interactionID discord.InteractionID,
 	interactionToken string,
-	response api.InteractionResponse,
+	flags discord.MessageFlags,
 ) {
 	select {
 	case <-ctx.Done():
@@ -490,7 +429,12 @@ func (p *DiscordProvider) AutoDeferInteraction(
 		}
 
 		if !hasCreatedResponse {
-			_, err := p.CreateInteractionResponse(ctx, interactionID, interactionToken, response)
+			_, err := p.CreateInteractionResponse(ctx, interactionID, interactionToken, api.InteractionResponse{
+				Type: api.DeferredMessageInteractionWithSource,
+				Data: &api.InteractionResponseData{
+					Flags: flags,
+				},
+			})
 			if err != nil {
 				slog.Error(
 					"Failed to auto-defer interaction",
@@ -569,8 +513,8 @@ func (p *AIProvider) CreateResponse(ctx context.Context, opts provider.CreateRes
 		switch tool {
 		case provider.AIToolTypeWebSearchPreview:
 			tools = append(tools, responses.ToolUnionParam{
-				OfWebSearchPreview: &responses.WebSearchPreviewToolParam{
-					Type: responses.WebSearchPreviewToolTypeWebSearchPreview,
+				OfWebSearchPreview: &responses.WebSearchToolParam{
+					Type: responses.WebSearchToolTypeWebSearchPreview,
 				},
 			})
 		}
@@ -607,21 +551,14 @@ func (p *AIProvider) CreateResponse(ctx context.Context, opts provider.CreateRes
 		maxOutputTokens = opts.MaxOutputTokens
 	}
 
-	params := responses.ResponseNewParams{
+	resp, err := p.client.Responses.New(ctx, responses.ResponseNewParams{
 		Model: model,
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: inputs,
 		},
 		MaxOutputTokens: openai.Int(int64(maxOutputTokens)),
 		Tools:           tools,
-	}
-	// GPT-5 models reason before answering, and the reasoning counts towards
-	// the output tokens, so less of it leaves more room for the answer.
-	if strings.HasPrefix(model, "gpt-5") {
-		params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffortLow}
-	}
-
-	resp, err := p.client.Responses.New(ctx, params)
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create response: %w", err)
 	}
@@ -629,15 +566,12 @@ func (p *AIProvider) CreateResponse(ctx context.Context, opts provider.CreateRes
 	return resp.OutputText(), nil
 }
 
-// Variable IDs come from user-authored flow data, so lookups are scoped to the app.
 type VariableProvider struct {
-	appID              string
 	variableValueStore store.VariableValueStore
 }
 
-func NewVariableProvider(appID string, variableValueStore store.VariableValueStore) *VariableProvider {
+func NewVariableProvider(variableValueStore store.VariableValueStore) *VariableProvider {
 	return &VariableProvider{
-		appID:              appID,
 		variableValueStore: variableValueStore,
 	}
 }
@@ -651,7 +585,7 @@ func (p *VariableProvider) UpdateVariable(ctx context.Context, id string, scope 
 		UpdatedAt:  time.Now().UTC(),
 	}
 
-	newValue, err := p.variableValueStore.UpdateVariableValue(ctx, p.appID, operation, v)
+	newValue, err := p.variableValueStore.UpdateVariableValue(ctx, operation, v)
 	if err != nil {
 		return thing.Null, fmt.Errorf("failed to %s variable value: %w", operation, err)
 	}
@@ -660,7 +594,7 @@ func (p *VariableProvider) UpdateVariable(ctx context.Context, id string, scope 
 }
 
 func (p *VariableProvider) Variable(ctx context.Context, id string, scope null.String) (thing.Thing, error) {
-	row, err := p.variableValueStore.VariableValue(ctx, p.appID, id, scope)
+	row, err := p.variableValueStore.VariableValue(ctx, id, scope)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return thing.Null, provider.ErrNotFound
@@ -672,7 +606,7 @@ func (p *VariableProvider) Variable(ctx context.Context, id string, scope null.S
 }
 
 func (p *VariableProvider) DeleteVariable(ctx context.Context, id string, scope null.String) error {
-	err := p.variableValueStore.DeleteVariableValue(ctx, p.appID, id, scope)
+	err := p.variableValueStore.DeleteVariableValue(ctx, id, scope)
 	if err != nil {
 		return fmt.Errorf("failed to delete variable value: %w", err)
 	}
@@ -681,23 +615,19 @@ func (p *VariableProvider) DeleteVariable(ctx context.Context, id string, scope 
 }
 
 type MessageTemplateProvider struct {
-	// Template IDs come from user-authored flow data, so lookups are scoped to
-	// the app to keep a flow from using another app's templates.
-	appID                string
 	messageStore         store.MessageStore
 	messageInstanceStore store.MessageInstanceStore
 }
 
-func NewMessageTemplateProvider(appID string, messageStore store.MessageStore, messageInstanceStore store.MessageInstanceStore) *MessageTemplateProvider {
+func NewMessageTemplateProvider(messageStore store.MessageStore, messageInstanceStore store.MessageInstanceStore) *MessageTemplateProvider {
 	return &MessageTemplateProvider{
-		appID:                appID,
 		messageStore:         messageStore,
 		messageInstanceStore: messageInstanceStore,
 	}
 }
 
 func (p *MessageTemplateProvider) MessageTemplate(ctx context.Context, id string) (*message.MessageData, error) {
-	message, err := p.messageStore.Message(ctx, p.appID, id)
+	message, err := p.messageStore.Message(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
@@ -706,12 +636,12 @@ func (p *MessageTemplateProvider) MessageTemplate(ctx context.Context, id string
 }
 
 func (p *MessageTemplateProvider) LinkMessageTemplateInstance(ctx context.Context, instance provider.MessageTemplateInstance) error {
-	message, err := p.messageStore.Message(ctx, p.appID, instance.MessageTemplateID)
+	message, err := p.messageStore.Message(ctx, instance.MessageTemplateID)
 	if err != nil {
 		return fmt.Errorf("failed to get message: %w", err)
 	}
 
-	_, err = p.messageInstanceStore.CreateMessageInstance(ctx, p.appID, &model.MessageInstance{
+	_, err = p.messageInstanceStore.CreateMessageInstance(ctx, &model.MessageInstance{
 		MessageID:        message.ID,
 		DiscordMessageID: instance.MessageID.String(),
 		DiscordChannelID: instance.ChannelID.String(),
@@ -729,17 +659,8 @@ func (p *MessageTemplateProvider) LinkMessageTemplateInstance(ctx context.Contex
 	return nil
 }
 
-// maxPendingTimers bounds the durable sleeps an app can have waiting, a busy
-// listener could otherwise create one for every message.
-const maxPendingTimers = 1000
-
-// timerExpiry is how long after resume_at a timer that couldn't resume, e.g.
-// because the app's gateway was down, is kept before it's deleted.
-const timerExpiry = time.Hour
-
 type ResumePointProvider struct {
 	resumePointStore store.ResumePointStore
-	tokenCrypt       *util.SymmetricCrypt
 
 	appID string
 	links entityLinks
@@ -747,38 +668,14 @@ type ResumePointProvider struct {
 
 func NewResumePointProvider(
 	resumePointStore store.ResumePointStore,
-	tokenCrypt *util.SymmetricCrypt,
 	appID string,
 	links entityLinks,
 ) *ResumePointProvider {
 	return &ResumePointProvider{
 		resumePointStore: resumePointStore,
-		tokenCrypt:       tokenCrypt,
 		appID:            appID,
 		links:            links,
 	}
-}
-
-// timerFields checks the app's limit of pending timers and prepares the
-// columns only timers have.
-func (p *ResumePointProvider) timerFields(ctx context.Context, s flow.ResumePoint) (resumeAt, expiresAt null.Time, interactionToken null.String, err error) {
-	pending, err := p.resumePointStore.CountPendingTimerResumePoints(ctx, p.appID)
-	if err != nil {
-		return resumeAt, expiresAt, interactionToken, fmt.Errorf("failed to count pending timers: %w", err)
-	}
-	if pending >= maxPendingTimers {
-		return resumeAt, expiresAt, interactionToken, fmt.Errorf("too many sleeping flows, at most %d can wait at the same time", maxPendingTimers)
-	}
-
-	if s.InteractionToken != "" {
-		token, err := p.tokenCrypt.EncryptString(s.InteractionToken)
-		if err != nil {
-			return resumeAt, expiresAt, interactionToken, fmt.Errorf("failed to encrypt interaction token: %w", err)
-		}
-		interactionToken = null.StringFrom(token)
-	}
-
-	return null.TimeFrom(s.ResumeAt), null.TimeFrom(s.ResumeAt.Add(timerExpiry)), interactionToken, nil
 }
 
 func (p *ResumePointProvider) CreateResumePoint(ctx context.Context, s flow.ResumePoint) (flow.ResumePoint, error) {
@@ -786,17 +683,9 @@ func (p *ResumePointProvider) CreateResumePoint(ctx context.Context, s flow.Resu
 		s.ID = util.UniqueID()
 	}
 
-	var expiresAt, resumeAt null.Time
-	var interactionToken null.String
-	switch s.Type {
-	case flow.ResumePointTypeModal:
+	var expiresAt null.Time
+	if s.Type == flow.ResumePointTypeModal {
 		expiresAt = null.NewTime(time.Now().UTC().Add(time.Hour*1), true)
-	case flow.ResumePointTypeTimer:
-		var err error
-		resumeAt, expiresAt, interactionToken, err = p.timerFields(ctx, s)
-		if err != nil {
-			return s, err
-		}
 	}
 
 	// TODO: Implement some kind of expiration for other resume point types
@@ -815,8 +704,6 @@ func (p *ResumePointProvider) CreateResumePoint(ctx context.Context, s flow.Resu
 		FlowState:         s.State,
 		CreatedAt:         time.Now().UTC(),
 		ExpiresAt:         expiresAt,
-		ResumeAt:          resumeAt,
-		InteractionToken:  interactionToken,
 	})
 
 	return s, err

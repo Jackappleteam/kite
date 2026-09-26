@@ -55,12 +55,12 @@ func (m *MessageInstance) HandleEvent(appID string, session *state.State, event 
 		return
 	}
 
-	d, ok := i.InteractionEvent.Data.(discord.ComponentInteraction)
+	d, ok := i.InteractionEvent.Data.(*discord.ButtonInteraction)
 	if !ok {
 		return
 	}
 
-	flowSourceID := string(d.ID())
+	flowSourceID := string(d.CustomID)
 
 	links := entityLinks{
 		MessageID:         null.NewString(m.msg.MessageID, true),

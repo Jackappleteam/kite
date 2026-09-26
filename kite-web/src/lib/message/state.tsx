@@ -1,27 +1,15 @@
 import { TemporalState } from "zundo";
-import {
-  createDocumentStore,
-  DocumentData,
-  DocumentStore,
-  isComponentsV2,
-  Node,
-  NodeId,
-  slotLimit,
-  slotOfChild,
-} from "./document";
-import { ChildSlot, childIds, toMessage } from "./documentConvert";
+import { createMessageStore, MessageStore } from "./messageStore";
 import { createContext, ReactNode, useContext, useMemo, useState } from "react";
 import { useStore } from "zustand";
-import { useShallow } from "zustand/react/shallow";
 import {
   createValidationErrorStore,
   ValidationErrorStore,
 } from "./validationStore";
 import { createFlowStore, FlowStore } from "./flowStore";
-import { Message } from "./schema";
 
 type ContextValue = {
-  documentStore: ReturnType<typeof createDocumentStore>;
+  messageStore: ReturnType<typeof createMessageStore>;
   validationStore: ReturnType<typeof createValidationErrorStore>;
   flowStore: ReturnType<typeof createFlowStore>;
 };
@@ -33,17 +21,17 @@ export function CurrentMessageStoreProvider({
 }: {
   children: ReactNode;
 }) {
-  const [documentStore] = useState(() => createDocumentStore());
+  const [messageStore] = useState(() => createMessageStore());
   const [validationStore] = useState(() => createValidationErrorStore());
   const [flowStore] = useState(() => createFlowStore());
 
   const value = useMemo(
     () => ({
-      documentStore,
+      messageStore,
       validationStore,
       flowStore,
     }),
-    [documentStore, validationStore, flowStore]
+    [messageStore, validationStore, flowStore]
   );
 
   return (
@@ -53,99 +41,59 @@ export function CurrentMessageStoreProvider({
   );
 }
 
-function useStoreContext(hook: string) {
+export function useCurrentMessageStore() {
   const value = useContext(CurrentMessageStoreContext);
   if (!value) {
     throw new Error(
-      `${hook} must be used within a CurrentMessageStoreProvider provider`
+      "useCurrentMessageStore must be used within a CurrentMessageStoreProvider provider"
     );
   }
-  return value;
+
+  return value.messageStore;
 }
 
-export function useDocumentStoreApi() {
-  return useStoreContext("useDocumentStoreApi").documentStore;
+export function useCurrentMessage<T>(selector: (store: MessageStore) => T): T {
+  const store = useCurrentMessageStore();
+  return useStore(store, selector);
 }
 
-export function useDocument<T>(selector: (state: DocumentStore) => T): T {
-  return useStore(useDocumentStoreApi(), selector);
-}
-
-/** The undo stack only tracks the document itself, not the store actions. */
-export function useDocumentUndo<T>(
-  selector: (state: TemporalState<DocumentData>) => T
+export function useCurrentMessageUndo<T>(
+  selector: (state: TemporalState<MessageStore>) => T
 ) {
-  return useStore(useDocumentStoreApi().temporal, selector);
-}
-
-/** The message payload the document currently describes. */
-export function getMessage(store: { getState(): DocumentData }): Message {
-  return toMessage(store.getState()).message;
-}
-
-export const useRootId = () => useDocument((state) => state.rootId);
-
-export const useNode = <T extends Node>(id: NodeId) =>
-  useDocument((state) => state.nodes[id] as T | undefined);
-
-export const useChildIds = (id: NodeId, slot: ChildSlot) =>
-  useDocument(useShallow((state) => childIds(state.nodes[id], slot)));
-
-export const useComponentsV2Enabled = () => useDocument(isComponentsV2);
-
-/**
- * Where a node sits among its siblings and its move, duplicate and remove
- * handlers, left undefined at the ends of its slot, once the slot is full and
- * for nodes their parent can't do without.
- */
-export function useNodeActions(id: NodeId) {
-  const { index, count, max, required } = useDocument(
-    useShallow((state) => {
-      const node = state.nodes[id];
-      const parent = node?.parentId ? state.nodes[node.parentId] : undefined;
-      const slot = parent && slotOfChild(parent, id);
-      const ids = slot ? childIds(parent, slot) : [];
-
-      return {
-        index: ids.indexOf(id),
-        count: ids.length,
-        // A section always needs its accessory, and a select menu is what makes
-        // its row a select row, so both can only be replaced, not removed.
-        required:
-          slot === "accessory" ||
-          (parent?.type === "actionRow" && node.type === "selectMenu"),
-        max:
-          parent && slot
-            ? slotLimit(parent.type, slot, isComponentsV2(state), node.type)
-            : 1,
-      };
-    })
-  );
-  const { move, duplicate, remove } = useDocumentStoreApi().getState();
-
-  return {
-    index,
-    moveUp: index > 0 ? () => move(id, -1) : undefined,
-    moveDown: index < count - 1 ? () => move(id, 1) : undefined,
-    duplicate: count < max ? () => duplicate(id) : undefined,
-    remove: required ? undefined : () => remove(id),
-  };
+  const store = useCurrentMessageStore();
+  return useStore(store.temporal, selector);
 }
 
 export function useValidationErrorStore() {
-  return useStoreContext("useValidationErrorStore").validationStore;
+  const value = useContext(CurrentMessageStoreContext);
+  if (!value) {
+    throw new Error(
+      "useValidationErrorStore must be used within a CurrentMessageStoreProvider provider"
+    );
+  }
+
+  return value.validationStore;
 }
 
 export function useValidationErrors<T>(
   selector: (store: ValidationErrorStore) => T
 ): T {
-  return useStore(useValidationErrorStore(), selector);
+  const store = useValidationErrorStore();
+  return useStore(store, selector);
 }
 
 export function useCurrentFlowStore() {
-  return useStoreContext("useCurrentFlowStore").flowStore;
+  const value = useContext(CurrentMessageStoreContext);
+  if (!value) {
+    throw new Error(
+      "useCurrentFlowStore must be used within a CurrentMessageStoreProvider provider"
+    );
+  }
+
+  return value.flowStore;
 }
 
 export function useCurrentFlow<T>(selector: (store: FlowStore) => T): T {
-  return useStore(useCurrentFlowStore(), selector);
+  const store = useCurrentFlowStore();
+  return useStore(store, selector);
 }

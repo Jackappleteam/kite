@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/diamondburned/arikawa/v3/discord"
 	"github.com/diamondburned/arikawa/v3/gateway"
 	"github.com/diamondburned/arikawa/v3/state"
 	"github.com/diamondburned/arikawa/v3/utils/ws"
 	"github.com/expr-lang/expr/ast"
-	"github.com/kitecloud/kite/kite-service/pkg/schedule"
 	"github.com/kitecloud/kite/kite-service/pkg/thing"
 )
 
@@ -32,9 +30,6 @@ type InteractionEnv struct {
 	Member     any                      `expr:"member" json:"member"`
 	Command    *CommandEnv              `expr:"command" json:"command"`
 	Components map[string]*ComponentEnv `expr:"components" json:"components"`
-	// Values are the options picked in a select menu, Value is the first of them.
-	Values []string `expr:"values" json:"values"`
-	Value  string   `expr:"value" json:"value"`
 }
 
 func NewInteractionEnv(i *discord.InteractionEvent) *InteractionEnv {
@@ -60,13 +55,6 @@ func NewInteractionEnv(i *discord.InteractionEvent) *InteractionEnv {
 
 	if i.Data.InteractionType() == discord.CommandInteractionType {
 		e.Command = NewCommandEnv(i)
-	}
-
-	if data, ok := i.Data.(*discord.StringSelectInteraction); ok {
-		e.Values = data.Values
-		if len(data.Values) > 0 {
-			e.Value = data.Values[0]
-		}
 	}
 
 	return e
@@ -244,25 +232,6 @@ type EventEnv struct {
 	Channel *SnowflakeEnv `expr:"channel" json:"channel"`
 	Message *MessageEnv   `expr:"message" json:"message"`
 	Guild   *SnowflakeEnv `expr:"guild" json:"guild"`
-
-	Schedule *ScheduleEnv `expr:"schedule" json:"schedule"`
-}
-
-type ScheduleEnv struct {
-	Time string `expr:"time" json:"time"`
-	Unix int64  `expr:"unix" json:"unix"`
-}
-
-func NewScheduleEnv(e *schedule.Event) *ScheduleEnv {
-	t := e.Time.UTC()
-	return &ScheduleEnv{
-		Time: t.Format(time.RFC3339),
-		Unix: t.Unix(),
-	}
-}
-
-func (s ScheduleEnv) String() string {
-	return s.Time
 }
 
 func NewEventEnv(event ws.Event) *EventEnv {
@@ -313,45 +282,9 @@ func NewEventEnv(event ws.Event) *EventEnv {
 		env.User = NewUserEnv(e.User)
 		env.Member = env.User
 		env.Guild = NewSnowflakeEnv(e.GuildID)
-	case *schedule.Event:
-		env.Schedule = NewScheduleEnv(e)
 	}
 
 	return env
-}
-
-// SetResumeContext makes the interactions or events from before a resume point
-// available to the resumed flow, oldest first. Command args and modal inputs
-// only exist on one kind of interaction, so arg() and input() fall back to
-// earlier ones, newest first.
-func (c Context) SetResumeContext(earlier []Context) {
-	if len(earlier) == 0 {
-		return
-	}
-
-	c.Env["origin"] = map[string]any(earlier[0].Env)
-	c.Env["previous"] = map[string]any(earlier[len(earlier)-1].Env)
-
-	for _, name := range []string{"arg", "input"} {
-		var lookups []func(string) any
-		if fn, ok := c.Env[name].(func(string) any); ok {
-			lookups = append(lookups, fn)
-		}
-		for i := len(earlier) - 1; i >= 0; i-- {
-			if fn, ok := earlier[i].Env[name].(func(string) any); ok {
-				lookups = append(lookups, fn)
-			}
-		}
-
-		c.Env[name] = func(key string) any {
-			for _, lookup := range lookups {
-				if v := lookup(key); v != nil {
-					return v
-				}
-			}
-			return nil
-		}
-	}
 }
 
 func NewContext(env Env) Context {
@@ -361,18 +294,16 @@ func NewContext(env Env) Context {
 }
 
 func NewContextFromEvent(event ws.Event, session *state.State) Context {
-	env := NewEventEnv(event)
 	return Context{
 		Env: Env{
-			"event":    env,
-			"user":     env.User,
-			"member":   env.Member,
-			"channel":  env.Channel,
-			"guild":    env.Guild,
-			"server":   env.Guild,
-			"message":  env.Message,
-			"schedule": env.Schedule,
-			"app":      NewAppEnv(session),
+			"event":   NewEventEnv(event),
+			"user":    NewEventEnv(event).User,
+			"member":  NewEventEnv(event).Member,
+			"channel": NewEventEnv(event).Channel,
+			"guild":   NewEventEnv(event).Guild,
+			"server":  NewEventEnv(event).Guild,
+			"message": NewEventEnv(event).Message,
+			"app":     NewAppEnv(session),
 		},
 	}
 }

@@ -242,7 +242,6 @@ func TestStringConversions(t *testing.T) {
 		{name: "message", value: NewDiscordMessage(discord.Message{Content: "content"}), expected: "content"},
 		{name: "user", value: NewDiscordUser(discord.User{ID: 123}), expected: "<@123>"},
 		{name: "member", value: NewDiscordMember(discord.Member{User: discord.User{ID: 123}}), expected: "<@123>"},
-		{name: "null", value: Null, expected: ""},
 	}
 
 	for _, test := range tests {

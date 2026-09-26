@@ -19,14 +19,14 @@ max_stack_depth = 100
 max_operations = 100
 max_credits = 250
 populate_interval = "5s"
-remove_dangling_interval = "5m"
+remove_dangling_interval = "10m"
 populate_overlap = "5s"
 
 [gateway]
 populate_interval = "10s"
 remove_dangling_interval = "60s"
 populate_overlap = "5s"
-start_interval = "10ms"
+start_interval = "100ms"
 
 [http]
 max_idle_conns = 512
@@ -63,6 +63,3 @@ feature_max_variables = 25
 feature_max_messages = 25
 feature_max_event_listeners = 5
 feature_priority_support = false
-feature_rotating_status = false
-feature_max_scheduled_event_listeners = 10
-feature_min_schedule_interval_seconds = 300

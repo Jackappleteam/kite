@@ -20,13 +20,6 @@ type ResumePoint struct {
 	FlowState         flow.FlowContextState
 	CreatedAt         time.Time
 	ExpiresAt         null.Time
-	LastUsedAt        time.Time
-
-	// ResumeAt is only set for timers.
-	ResumeAt null.Time
-	// InteractionToken is encrypted. It's only set for timers that resume a
-	// flow triggered by an interaction, so the flow can still respond to it.
-	InteractionToken null.String
 }
 
 type ResumePointType string
@@ -34,5 +27,4 @@ type ResumePointType string
 const (
 	ResumePointTypeModal             ResumePointType = "modal"
 	ResumePointTypeMessageComponents ResumePointType = "message_components"
-	ResumePointTypeTimer             ResumePointType = "timer"
 )

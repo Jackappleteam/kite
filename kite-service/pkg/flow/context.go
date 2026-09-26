@@ -152,44 +152,13 @@ func (c *FlowContext) IsEntry() bool {
 	return c.stackDepth == 1
 }
 
-// suspendTimer saves the flow so it continues after the node at resumeAt. The
-// interaction token is kept so the flow can still respond afterwards, as long
-// as Discord accepts the token.
-func (c *FlowContext) suspendTimer(nodeID string, resumeAt time.Time) error {
-	var token string
-	if interaction := c.Data.Interaction(); interaction != nil {
-		token = interaction.Token
-	}
-
-	_, err := c.saveResumePoint(ResumePoint{
-		Type:             ResumePointTypeTimer,
-		NodeID:           nodeID,
-		ResumeAt:         resumeAt,
-		InteractionToken: token,
-	})
-	return err
-}
-
 func (c *FlowContext) suspend(t ResumePointType, resumePointID string, nodeID string) (*ResumePoint, error) {
-	return c.saveResumePoint(ResumePoint{
+	s, err := c.ResumePoint.CreateResumePoint(c.Context, ResumePoint{
 		ID:     resumePointID,
 		Type:   t,
 		NodeID: nodeID,
+		State:  c.FlowContextState.Copy(),
 	})
-}
-
-// saveResumePoint stores rp with a snapshot of the current state.
-func (c *FlowContext) saveResumePoint(rp ResumePoint) (*ResumePoint, error) {
-	rp.State = c.FlowContextState.Copy()
-	if rp.Type == ResumePointTypeTimer {
-		// The flow continues with the same trigger, so it isn't an earlier one.
-		rp.State.ResumeTrigger = newFlowTrigger(c.Data)
-		rp.State.DurableSleeps++
-	} else {
-		rp.State.recordTrigger(c.Data)
-	}
-
-	s, err := c.ResumePoint.CreateResumePoint(c.Context, rp)
 	if err != nil {
 		return nil, err
 	}

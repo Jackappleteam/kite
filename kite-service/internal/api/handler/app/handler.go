@@ -169,18 +169,12 @@ func (h *AppHandler) HandleAppUpdate(c *handler.Context, req wire.AppUpdateReque
 func (h *AppHandler) HandleAppStatusUpdate(c *handler.Context, req wire.AppStatusUpdateRequest) (*wire.AppStatusUpdateResponse, error) {
 	var status *model.AppDiscordStatus
 	if req.DiscordStatus != nil {
-		entries := make([]model.AppDiscordStatusEntry, len(req.DiscordStatus.Statuses))
-		for i, e := range req.DiscordStatus.Statuses {
-			entries[i] = model.AppDiscordStatusEntry(e)
-			if entries[i].ID == "" {
-				entries[i].ID = util.UniqueID()
-			}
-		}
-
 		status = &model.AppDiscordStatus{
-			Statuses:      entries,
-			ActiveID:      req.DiscordStatus.ActiveID,
-			RotateEnabled: req.DiscordStatus.RotateEnabled && c.Features.RotatingStatus,
+			Status:        req.DiscordStatus.Status,
+			ActivityType:  req.DiscordStatus.ActivityType,
+			ActivityName:  req.DiscordStatus.ActivityName,
+			ActivityState: req.DiscordStatus.ActivityState,
+			ActivityURL:   req.DiscordStatus.ActivityURL,
 		}
 	}
 

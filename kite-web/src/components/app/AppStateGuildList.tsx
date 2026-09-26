@@ -25,8 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAppStateGuilds, useResponseData } from "@/lib/hooks/api";
-import { useAppStateStatusQuery } from "@/lib/api/queries";
+import { useAppStateGuilds } from "@/lib/hooks/api";
 import { Guild } from "@/lib/types/wire.gen";
 import { useCallback, useMemo } from "react";
 import { useAppStateGuildLeaveMutation } from "@/lib/api/mutations";
@@ -118,7 +117,6 @@ export const columns: ColumnDef<Guild>[] = [
 
 export default function AppStateGuildList() {
   const guilds = useAppStateGuilds();
-  const appStatus = useResponseData(useAppStateStatusQuery(useAppId()));
 
   const tableData = useMemo(() => (guilds ?? []) as Guild[], [guilds]);
 
@@ -182,9 +180,7 @@ export default function AppStateGuildList() {
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  {appStatus && !appStatus.online
-                    ? "Your app is offline. Start it to see its servers."
-                    : "No results."}
+                  No results.
                 </TableCell>
               </TableRow>
             )}

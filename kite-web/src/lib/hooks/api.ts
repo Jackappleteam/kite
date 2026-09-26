@@ -202,16 +202,13 @@ export function useMessage(
 }
 
 export function useMessageInstances(
-  { sentBy, enabled }: { sentBy?: "flow"; enabled?: boolean } = {},
   callback?: (res: APIResponse<MessageInstanceListResponse>) => void
 ) {
   const router = useRouter();
 
   const query = useMessageInstancesQuery(
     router.query.appId as string,
-    router.query.messageId as string,
-    sentBy,
-    enabled
+    router.query.messageId as string
   );
   return useResponseData(query, callback);
 }
@@ -330,23 +327,6 @@ export function useAppFeatures(
 
   const query = useAppFeaturesQuery(router.query.appId as string);
   return useResponseData(query, callback);
-}
-
-// useAppPlan returns the plan of the app's active subscription, falling back
-// to the default plan when there is none.
-export function useAppPlan() {
-  const subscriptions = useAppSubscriptions();
-  const plans = useBillingPlans();
-  if (!subscriptions || !plans) return undefined;
-
-  const activeProductIds = subscriptions
-    .filter((s) => s!.active)
-    .map((s) => s!.lemonsqueezy_product_id);
-
-  return (
-    plans.find((p) => activeProductIds.includes(p!.lemonsqueezy_product_id)) ??
-    plans.find((p) => p!.default)
-  );
 }
 
 export function useAppFeature<T>(

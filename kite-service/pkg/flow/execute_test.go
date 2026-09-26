@@ -100,12 +100,7 @@ func TestFlowExecuteCommand(t *testing.T) {
 type TestDiscordProvider struct {
 	provider.MockDiscordProvider
 
-	responded bool
-	response  api.InteractionResponse
-}
-
-func (p *TestDiscordProvider) HasCreatedInteractionResponse(ctx context.Context, interactionID discord.InteractionID) (bool, error) {
-	return p.responded, nil
+	response api.InteractionResponse
 }
 
 func (p *TestDiscordProvider) CreateInteractionResponse(ctx context.Context, interactionID discord.InteractionID, interactionToken string, response api.InteractionResponse) (*provider.InteractionResponseResource, error) {
@@ -113,14 +108,9 @@ func (p *TestDiscordProvider) CreateInteractionResponse(ctx context.Context, int
 	return nil, nil
 }
 
-type TestContextData struct {
-	interaction *discord.InteractionEvent
-}
+type TestContextData struct{}
 
 func (d *TestContextData) Interaction() *discord.InteractionEvent {
-	if d.interaction != nil {
-		return d.interaction
-	}
 	return &discord.InteractionEvent{}
 }
 
@@ -146,151 +136,4 @@ func (d *TestContextData) MessageComponentData() discord.ComponentInteraction {
 
 func (d *TestContextData) Event() ws.Event {
 	return &gateway.InteractionCreateEvent{}
-}
-
-func TestFlowExecuteModalEvaluatesTemplates(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	discordProvider := &TestDiscordProvider{}
-
-	c := NewContext(
-		ctx,
-		5*time.Second,
-		&TestContextData{},
-		FlowProviders{
-			Discord:     discordProvider,
-			Log:         &provider.MockLogProvider{},
-			ResumePoint: &MockResumePointProvider{},
-		}, FlowContextLimits{
-			MaxStackDepth: 10,
-			MaxOperations: 1000,
-			MaxCredits:    1000,
-		},
-		eval.NewContext(eval.Env{}),
-		nil,
-	)
-	defer c.Cancel()
-
-	node := CompiledFlowNode{
-		ID:   "0",
-		Type: FlowNodeTypeEntryCommand,
-		Children: ConnectedFlowNodes{
-			Default: []*CompiledFlowNode{
-				{
-					ID:   "1",
-					Type: FlowNodeTypeSuspendResponseModal,
-					Data: FlowNodeData{
-						ModalData: &ModalData{
-							Title: "Form {{ 1 + 1 }}",
-							Components: []ModalComponentData{{
-								Components: []ModalComponentData{{
-									CustomID:    "name_{{ 1 }}",
-									Style:       1,
-									Label:       "Label {{ 2 + 1 }}",
-									Placeholder: "Placeholder {{ 4 }}",
-									Value:       "Value {{ 5 }}",
-								}, {
-									CustomID: "empty",
-									Style:    1,
-									Label:    "Empty",
-								}},
-							}},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	err := node.Execute(c)
-	require.NoError(t, err)
-	require.NotNil(t, discordProvider.response.Data)
-	assert.Equal(t, "Form 2", discordProvider.response.Data.Title.Val)
-
-	row := (*discordProvider.response.Data.Components)[0].(*discord.ActionRowComponent)
-	input := (*row)[0].(*discord.TextInputComponent)
-	assert.Equal(t, discord.ComponentID("name_{{ 1 }}"), input.CustomID)
-	assert.Equal(t, "Label 3", input.Label)
-	assert.Equal(t, "Placeholder 4", input.Placeholder)
-	assert.Equal(t, "Value 5", input.Value)
-
-	empty := (*row)[1].(*discord.TextInputComponent)
-	assert.Equal(t, "", empty.Placeholder)
-	assert.Equal(t, "", empty.Value)
-}
-
-func TestFlowExecuteConditionCompareEquality(t *testing.T) {
-	tests := []struct {
-		name      string
-		mode      ComparsionMode
-		itemValue string
-		expected  bool
-	}{
-		{name: "equal match", mode: ComparsionModeEqual, itemValue: "a", expected: true},
-		{name: "equal mismatch", mode: ComparsionModeEqual, itemValue: "b", expected: false},
-		{name: "not equal match", mode: ComparsionModeNotEqual, itemValue: "a", expected: false},
-		{name: "not equal mismatch", mode: ComparsionModeNotEqual, itemValue: "b", expected: true},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			discordProvider := &TestDiscordProvider{}
-
-			c := NewContext(
-				ctx,
-				5*time.Second,
-				&TestContextData{},
-				FlowProviders{
-					Discord: discordProvider,
-					Log:     &provider.MockLogProvider{},
-				}, FlowContextLimits{
-					MaxStackDepth: 10,
-					MaxOperations: 1000,
-					MaxCredits:    1000,
-				},
-				eval.NewContext(eval.Env{}),
-				nil,
-			)
-			defer c.Cancel()
-
-			condition := &CompiledFlowNode{
-				ID:   "1",
-				Type: FlowNodeTypeControlConditionCompare,
-				Data: FlowNodeData{ConditionBaseValue: "a"},
-			}
-			item := &CompiledFlowNode{
-				ID:   "2",
-				Type: FlowNodeTypeControlConditionItemCompare,
-				Data: FlowNodeData{
-					ConditionItemMode:  test.mode,
-					ConditionItemValue: test.itemValue,
-				},
-				Parents: ConnectedFlowNodes{Default: []*CompiledFlowNode{condition}},
-				Children: ConnectedFlowNodes{
-					Default: []*CompiledFlowNode{{
-						ID:   "3",
-						Type: FlowNodeTypeActionResponseCreate,
-						Data: FlowNodeData{
-							MessageData: &message.MessageData{Content: "met"},
-						},
-					}},
-				},
-			}
-			condition.Children.Default = []*CompiledFlowNode{item}
-
-			node := CompiledFlowNode{
-				ID:       "0",
-				Type:     FlowNodeTypeEntryCommand,
-				Children: ConnectedFlowNodes{Default: []*CompiledFlowNode{condition}},
-			}
-
-			err := node.Execute(c)
-			require.NoError(t, err)
-			assert.Equal(t, test.expected, discordProvider.response.Data != nil)
-		})
-	}
 }

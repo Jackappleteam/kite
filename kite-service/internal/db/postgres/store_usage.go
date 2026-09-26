@@ -112,11 +112,8 @@ func (c *Client) AllUsageCreditsUsedBetween(ctx context.Context, start time.Time
 	return res, nil
 }
 
-func (c *Client) DeleteUsageRecordsBefore(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return c.Q.DeleteUsageRecordsBefore(ctx, pgmodel.DeleteUsageRecordsBeforeParams{
-		BeforeAt:  pgtype.Timestamp{Time: before, Valid: true},
-		BatchSize: int32(batchSize),
-	})
+func (c *Client) DeleteUsageRecordsBefore(ctx context.Context, before time.Time) error {
+	return c.Q.DeleteUsageRecordsBefore(ctx, pgtype.Timestamp{Time: before, Valid: true})
 }
 
 func rowToUsageRecord(row pgmodel.UsageRecord) model.UsageRecord {

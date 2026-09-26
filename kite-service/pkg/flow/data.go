@@ -12,8 +12,7 @@ import (
 	"github.com/kitecloud/kite/kite-service/pkg/eval"
 	"github.com/kitecloud/kite/kite-service/pkg/message"
 	"github.com/kitecloud/kite/kite-service/pkg/provider"
-	"github.com/kitecloud/kite/kite-service/pkg/schedule"
-	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go"
 	"gopkg.in/guregu/null.v4"
 )
 
@@ -57,11 +56,10 @@ const (
 	FlowNodeTypeActionMessageCreate         FlowNodeType = "action_message_create"
 	FlowNodeTypeActionMessageEdit           FlowNodeType = "action_message_edit"
 	FlowNodeTypeActionMessageDelete         FlowNodeType = "action_message_delete"
+	FlowNodeTypeActionMessageBulkDelete     FlowNodeType = "action_message_bulk_delete"
 	FlowNodeTypeActionPrivateMessageCreate  FlowNodeType = "action_private_message_create"
 	FlowNodeTypeActionMessageReactionCreate FlowNodeType = "action_message_reaction_create"
 	FlowNodeTypeActionMessageReactionDelete FlowNodeType = "action_message_reaction_delete"
-	FlowNodeTypeActionMessagePin            FlowNodeType = "action_message_pin"
-	FlowNodeTypeActionMessageUnpin          FlowNodeType = "action_message_unpin"
 	FlowNodeTypeActionMemberBan             FlowNodeType = "action_member_ban"
 	FlowNodeTypeActionMemberUnban           FlowNodeType = "action_member_unban"
 	FlowNodeTypeActionMemberKick            FlowNodeType = "action_member_kick"
@@ -92,9 +90,6 @@ const (
 	FlowNodeTypeActionVariableSet           FlowNodeType = "action_variable_set"
 	FlowNodeTypeActionVariableDelete        FlowNodeType = "action_variable_delete"
 	FlowNodeTypeActionVariableGet           FlowNodeType = "action_variable_get"
-	FlowNodeTypeActionVoiceChannelJoin      FlowNodeType = "action_voice_channel_join"
-	FlowNodeTypeActionVoiceChannelLeave     FlowNodeType = "action_voice_channel_leave"
-	FlowNodeTypeActionStatusSet             FlowNodeType = "action_status_set"
 
 	FlowNodeTypeControlConditionCompare     FlowNodeType = "control_condition_compare"
 	FlowNodeTypeControlConditionItemCompare FlowNodeType = "control_condition_item_compare"
@@ -114,10 +109,6 @@ const (
 
 	FlowNodeTypeSuspendResponseModal FlowNodeType = "suspend_response_modal"
 )
-
-// EventTypeScheduleCron is the event type of listeners that run on a cron
-// schedule instead of reacting to Discord events.
-const EventTypeScheduleCron = "cron"
 
 type FlowNode struct {
 	ID       string           `json:"id"`
@@ -165,7 +156,7 @@ type FlowNodeData struct {
 	// Command Installations
 	CommandDisabledIntegrations []CommandDisabledIntegrationType `json:"command_disabled_integrations,omitempty"`
 
-	// Guild Get, and the guild of member, channel, role and voice blocks
+	// Guild Get
 	GuildTarget string `json:"guild_target,omitempty"`
 
 	// Message & Response Create, Edit, Delete
@@ -173,6 +164,8 @@ type FlowNodeData struct {
 	MessageData       *message.MessageData `json:"message_data,omitempty"`
 	MessageTemplateID string               `json:"message_template_id,omitempty"`
 	MessageEphemeral  bool                 `json:"message_ephemeral,omitempty"`
+
+	MessageBulkDeleteCount string `json:"message_bulk_delete_count,omitempty"`
 
 	// Message Reaction Create, Delete
 	EmojiData *EmojiData `json:"emoji_data,omitempty"`
@@ -189,13 +182,6 @@ type FlowNodeData struct {
 	// Channel Create, Edit, Delete, Get
 	ChannelTarget string       `json:"channel_target,omitempty"`
 	ChannelData   *ChannelData `json:"channel_data,omitempty"`
-
-	// Voice Channel Join
-	VoiceSelfMute bool `json:"voice_self_mute,omitempty"`
-	VoiceSelfDeaf bool `json:"voice_self_deaf,omitempty"`
-
-	// Status Set
-	StatusData *StatusData `json:"status_data,omitempty"`
 
 	// Role Create, Edit, Delete, Get
 	RoleTarget string    `json:"role_target,omitempty"`
@@ -222,8 +208,7 @@ type FlowNodeData struct {
 	RandomMax string `json:"random_max,omitempty"`
 
 	// Event Entry
-	EventType         string `json:"event_type,omitempty"`
-	EventScheduleCron string `json:"event_schedule_cron,omitempty"`
+	EventType string `json:"event_type,omitempty"`
 
 	// Event Filter
 	EventFilterTarget EventFilterTarget `json:"event_filter_target,omitempty"`
@@ -289,15 +274,6 @@ func (d FlowNodeData) Validate(nodeType FlowNodeType) error {
 		validation.Field(&d.Description, validation.When(nodeType == FlowNodeTypeEntryEvent,
 			validation.Required,
 			validation.Length(1, 100),
-		)),
-		validation.Field(&d.EventScheduleCron, validation.When(
-			nodeType == FlowNodeTypeEntryEvent && d.EventType == EventTypeScheduleCron,
-			validation.Required,
-			validation.Length(1, 100),
-			validation.By(func(value any) error {
-				_, err := schedule.Parse(value.(string))
-				return err
-			}),
 		)),
 
 		// AI Chat Completion
@@ -386,13 +362,6 @@ const (
 type CommandArgumentChoiceData struct {
 	Name  string `json:"name,omitempty"`
 	Value string `json:"value,omitempty"`
-}
-
-type StatusData struct {
-	Status       string `json:"status,omitempty"`
-	ActivityType int    `json:"activity_type,omitempty"`
-	ActivityName string `json:"activity_name,omitempty"`
-	ActivityURL  string `json:"activity_url,omitempty"`
 }
 
 type ChannelData struct {
@@ -561,12 +530,11 @@ type AIChatCompletionData struct {
 //
 // The empty string is the provider default (gpt-4o-mini), so it is priced.
 var aiModelCosts = map[string]aiModelCost{
-	"":                         {Chat: 5, Search: 25},
+	"":                  {Chat: 5, Search: 25},
 	openai.ChatModelGPT4_1:     {Chat: 100, Search: 500},
 	openai.ChatModelGPT4_1Mini: {Chat: 20, Search: 100},
 	openai.ChatModelGPT4_1Nano: {Chat: 5, Search: 25},
 	openai.ChatModelGPT4oMini:  {Chat: 5, Search: 25},
-	openai.ChatModelGPT5Nano:   {Chat: 5, Search: 25},
 }
 
 type aiModelCost struct {

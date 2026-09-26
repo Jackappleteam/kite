@@ -7,12 +7,10 @@ import { EventListener } from "@/lib/types/wire.gen";
 import { formatDateTime } from "@/lib/utils";
 import {
   CheckIcon,
-  ClockIcon,
   CopyPlusIcon,
   EllipsisIcon,
   SatelliteDishIcon,
   Trash2Icon,
-  Share2Icon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -37,7 +35,6 @@ import {
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import EventListenerDuplicateDialog from "./EventListenerDuplicateDialog";
-import FlowExportDialog from "./FlowExportDialog";
 
 export default function EventListenerListEntry({
   listener,
@@ -47,11 +44,6 @@ export default function EventListenerListEntry({
   const router = useRouter();
 
   const appId = useAppId();
-
-  const isSchedule = listener.source === "schedule";
-  const scheduleCron = listener.flow_source.nodes.find(
-    (n) => n.type === "entry_event"
-  )?.data.event_schedule_cron;
 
   const deleteMutation = useEventListenerDeleteMutation(appId, listener.id);
 
@@ -102,22 +94,11 @@ export default function EventListenerListEntry({
       </div>
       <CardHeader>
         <CardTitle className="text-base flex items-center space-x-2">
-          {isSchedule ? (
-            <ClockIcon className="h-5 w-5 text-muted-foreground" />
-          ) : (
-            <SatelliteDishIcon className="h-5 w-5 text-muted-foreground" />
-          )}
-          <div>
-            {isSchedule ? `schedule ${scheduleCron ?? ""}` : listener.type}
-          </div>
+          <SatelliteDishIcon className="h-5 w-5 text-muted-foreground" />
+          <div>{listener.type}</div>
         </CardTitle>
         <CardDescription className="text-sm">
           {listener.description}
-          {isSchedule && listener.last_run_at && (
-            <span className="block">
-              Last run {formatDateTime(new Date(listener.last_run_at))}
-            </span>
-          )}
         </CardDescription>
       </CardHeader>
       <CardFooter className="flex space-x-3">
@@ -158,19 +139,6 @@ export default function EventListenerListEntry({
                   Duplicate Event Listener
                 </DropdownMenuItem>
               </EventListenerDuplicateDialog>
-              <FlowExportDialog
-                title="Export Event Listener"
-                type="event_listener"
-                shareData={{
-                  source: listener.source,
-                  flow_source: listener.flow_source,
-                }}
-              >
-                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                  <Share2Icon className="h-4 w-4 mr-2 text-muted-foreground" />
-                  Export Event Listener
-                </DropdownMenuItem>
-              </FlowExportDialog>
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>

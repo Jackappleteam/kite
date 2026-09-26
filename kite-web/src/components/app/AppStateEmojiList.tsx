@@ -1,4 +1,3 @@
-import { discordEmojiUrl } from "@/tools/common/utils/discordCdn";
 import {
   ColumnDef,
   flexRender,
@@ -74,7 +73,9 @@ export default function AppStateEmojiList() {
       emojis?.map((e) => ({
         id: e!.id,
         name: e!.name,
-        url: discordEmojiUrl(e!.id, e!.animated),
+        url: `https://cdn.discordapp.com/emojis/${e!.id}.${
+          e!.animated ? "gif" : "png"
+        }`,
       })) ?? [],
     [emojis]
   );

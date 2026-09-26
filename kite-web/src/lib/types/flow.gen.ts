@@ -24,11 +24,10 @@ export const FlowNodeTypeActionResponseDefer: FlowNodeType = "action_response_de
 export const FlowNodeTypeActionMessageCreate: FlowNodeType = "action_message_create";
 export const FlowNodeTypeActionMessageEdit: FlowNodeType = "action_message_edit";
 export const FlowNodeTypeActionMessageDelete: FlowNodeType = "action_message_delete";
+export const FlowNodeTypeActionMessageBulkDelete: FlowNodeType = "action_message_bulk_delete";
 export const FlowNodeTypeActionPrivateMessageCreate: FlowNodeType = "action_private_message_create";
 export const FlowNodeTypeActionMessageReactionCreate: FlowNodeType = "action_message_reaction_create";
 export const FlowNodeTypeActionMessageReactionDelete: FlowNodeType = "action_message_reaction_delete";
-export const FlowNodeTypeActionMessagePin: FlowNodeType = "action_message_pin";
-export const FlowNodeTypeActionMessageUnpin: FlowNodeType = "action_message_unpin";
 export const FlowNodeTypeActionMemberBan: FlowNodeType = "action_member_ban";
 export const FlowNodeTypeActionMemberUnban: FlowNodeType = "action_member_unban";
 export const FlowNodeTypeActionMemberKick: FlowNodeType = "action_member_kick";
@@ -59,9 +58,6 @@ export const FlowNodeTypeActionLog: FlowNodeType = "action_log";
 export const FlowNodeTypeActionVariableSet: FlowNodeType = "action_variable_set";
 export const FlowNodeTypeActionVariableDelete: FlowNodeType = "action_variable_delete";
 export const FlowNodeTypeActionVariableGet: FlowNodeType = "action_variable_get";
-export const FlowNodeTypeActionVoiceChannelJoin: FlowNodeType = "action_voice_channel_join";
-export const FlowNodeTypeActionVoiceChannelLeave: FlowNodeType = "action_voice_channel_leave";
-export const FlowNodeTypeActionStatusSet: FlowNodeType = "action_status_set";
 export const FlowNodeTypeControlConditionCompare: FlowNodeType = "control_condition_compare";
 export const FlowNodeTypeControlConditionItemCompare: FlowNodeType = "control_condition_item_compare";
 export const FlowNodeTypeControlConditionUser: FlowNodeType = "control_condition_user";
@@ -78,11 +74,6 @@ export const FlowNodeTypeControlLoopEnd: FlowNodeType = "control_loop_end";
 export const FlowNodeTypeControlLoopExit: FlowNodeType = "control_loop_exit";
 export const FlowNodeTypeControlSleep: FlowNodeType = "control_sleep";
 export const FlowNodeTypeSuspendResponseModal: FlowNodeType = "suspend_response_modal";
-/**
- * EventTypeScheduleCron is the event type of listeners that run on a cron
- * schedule instead of reacting to Discord events.
- */
-export const EventTypeScheduleCron = "cron";
 export interface FlowNode {
   id: string;
   type?: FlowNodeType;
@@ -123,7 +114,7 @@ export interface FlowNodeData {
    */
   command_disabled_integrations?: CommandDisabledIntegrationType[];
   /**
-   * Guild Get, and the guild of member, channel, role and voice blocks
+   * Guild Get
    */
   guild_target?: string;
   /**
@@ -133,6 +124,7 @@ export interface FlowNodeData {
   message_data?: MessageData;
   message_template_id?: string;
   message_ephemeral?: boolean;
+  message_bulk_delete_count?: string;
   /**
    * Message Reaction Create, Delete
    */
@@ -153,15 +145,6 @@ export interface FlowNodeData {
    */
   channel_target?: string;
   channel_data?: ChannelData;
-  /**
-   * Voice Channel Join
-   */
-  voice_self_mute?: boolean;
-  voice_self_deaf?: boolean;
-  /**
-   * Status Set
-   */
-  status_data?: StatusData;
   /**
    * Role Create, Edit, Delete, Get
    */
@@ -196,7 +179,6 @@ export interface FlowNodeData {
    * Event Entry
    */
   event_type?: string;
-  event_schedule_cron?: string;
   /**
    * Event Filter
    */
@@ -273,12 +255,6 @@ export const RobloxLookupTypeName: RobloxLookupType = "username";
 export interface CommandArgumentChoiceData {
   name?: string;
   value?: string;
-}
-export interface StatusData {
-  status?: string;
-  activity_type?: number /* int */;
-  activity_name?: string;
-  activity_url?: string;
 }
 export interface ChannelData {
   name?: string;
@@ -369,28 +345,10 @@ export interface FlowEdge {
 export interface FlowContextState {
   node_states: { [key: string]: FlowContextNodeState | undefined};
   temporaries: { [key: string]: any /* thing.Thing */};
-  /**
-   * Triggers holds the interactions or events of earlier executions, oldest
-   * first. It's only set in resumed executions.
-   */
-  triggers?: FlowTrigger[];
 }
 export interface FlowContextNodeState {
   condition_base_value?: any /* thing.Thing */;
   condition_item_met?: boolean;
   result?: any /* thing.Thing */;
   loop_exited?: boolean;
-}
-
-//////////
-// source: trigger.go
-
-/**
- * FlowTrigger is the interaction or event that started an execution. Resume
- * points store it so sub-flows can still reach it after the flow resumes with
- * a different interaction.
- */
-export interface FlowTrigger {
-  Interaction?: any /* discord.InteractionEvent */;
-  Event: any /* ws.Event */;
 }

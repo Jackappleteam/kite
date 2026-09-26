@@ -11,10 +11,7 @@ import {
   CommandList,
 } from "../ui/command";
 import { cn } from "@/lib/utils";
-import { useMemo, useState } from "react";
-
-// Text, voice, announcement, stage
-const sendableChannelTypes = new Set([0, 2, 5, 13]);
+import { useState } from "react";
 
 export default function ChannelSelect({
   guildId,
@@ -25,11 +22,7 @@ export default function ChannelSelect({
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
-  const allChannels = useAppStateGuildChannels(guildId);
-  const channels = useMemo(
-    () => allChannels?.filter((c) => c && sendableChannelTypes.has(c.type)),
-    [allChannels]
-  );
+  const channels = useAppStateGuildChannels(guildId);
 
   const [open, setOpen] = useState(false);
 
@@ -60,7 +53,6 @@ export default function ChannelSelect({
                 <CommandItem
                   key={channel!.id}
                   value={channel!.id}
-                  keywords={[channel!.name]}
                   onSelect={(currentValue) => {
                     onChange(currentValue);
                     setOpen(false);

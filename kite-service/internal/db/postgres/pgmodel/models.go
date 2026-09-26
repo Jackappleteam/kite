@@ -83,7 +83,6 @@ type EventListener struct {
 	FlowSource    []byte
 	CreatedAt     pgtype.Timestamp
 	UpdatedAt     pgtype.Timestamp
-	LastRunAt     pgtype.Timestamp
 }
 
 type Log struct {
@@ -121,7 +120,6 @@ type MessageInstance struct {
 	FlowSources      []byte
 	CreatedAt        pgtype.Timestamp
 	UpdatedAt        pgtype.Timestamp
-	LastUsedAt       pgtype.Timestamp
 }
 
 type Module struct {
@@ -171,9 +169,6 @@ type ResumePoint struct {
 	FlowState         []byte
 	CreatedAt         pgtype.Timestamp
 	ExpiresAt         pgtype.Timestamp
-	LastUsedAt        pgtype.Timestamp
-	ResumeAt          pgtype.Timestamp
-	InteractionToken  pgtype.Text
 }
 
 type Session struct {
@@ -181,17 +176,6 @@ type Session struct {
 	UserID    string
 	CreatedAt pgtype.Timestamp
 	ExpiresAt pgtype.Timestamp
-}
-
-type ShareCode struct {
-	Code          string
-	Type          string
-	Data          []byte
-	DataHash      pgtype.Text
-	CreatorUserID string
-	AppID         pgtype.Text
-	CreatedAt     pgtype.Timestamp
-	LastUsedAt    pgtype.Timestamp
 }
 
 type Subscription struct {

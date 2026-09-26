@@ -6,12 +6,14 @@ import { useAppId, useEventId } from "@/lib/hooks/params";
 import { useBeforePageExit } from "@/lib/hooks/exit";
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LogEntryListDrawer } from "@/components/app/LogEntryListDrawer";
 import { useLogEntriesQuery } from "@/lib/api/queries";
 
 export default function AppEventListenerPage() {
+  const ignoreChange = useRef(false);
+
   const router = useRouter();
   const listener = useEventListener((res) => {
     if (!res.success) {
@@ -24,6 +26,12 @@ export default function AppEventListenerPage() {
           query: { appId: router.query.appId },
         });
       }
+    } else {
+      // This is a workaround to ignore the initial change event
+      ignoreChange.current = true;
+      setTimeout(() => {
+        ignoreChange.current = false;
+      }, 100);
     }
   });
 
@@ -37,8 +45,10 @@ export default function AppEventListenerPage() {
   const [logsOpen, setLogsOpen] = useState(false);
 
   const onChange = useCallback(() => {
-    setHasUnsavedChanges(true);
-  }, [setHasUnsavedChanges]);
+    if (!ignoreChange.current) {
+      setHasUnsavedChanges(true);
+    }
+  }, [setHasUnsavedChanges, ignoreChange]);
 
   const save = useCallback(
     (data: FlowData) => {
@@ -111,9 +121,7 @@ export default function AppEventListenerPage() {
       {listener && (
         <FlowPage
           flowData={listener.flow_source}
-          context={
-            listener.source === "schedule" ? "event_schedule" : "event_discord"
-          }
+          context="event_discord"
           hasUnsavedChanges={hasUnsavedChanges}
           onChange={onChange}
           isSaving={isSaving}

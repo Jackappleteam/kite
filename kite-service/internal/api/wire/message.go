@@ -35,7 +35,18 @@ type MessageCreateRequest struct {
 }
 
 func (req *MessageCreateRequest) Sanitize() {
-	req.FlowSources = usedFlowSources(&req.Data, req.FlowSources)
+	// Remove unused flow sources
+	newFlowSources := make(map[string]flow.FlowData, len(req.FlowSources))
+	for _, row := range req.Data.Components {
+		for _, comp := range row.Components {
+			flow, ok := req.FlowSources[comp.FlowSourceID]
+			if ok {
+				newFlowSources[comp.FlowSourceID] = flow
+			}
+		}
+	}
+
+	req.FlowSources = newFlowSources
 }
 
 func (req MessageCreateRequest) Validate() error {
@@ -52,8 +63,8 @@ type MessagesImportRequest struct {
 }
 
 func (req *MessagesImportRequest) Sanitize() {
-	for i := range req.Messages {
-		req.Messages[i].Sanitize()
+	for _, message := range req.Messages {
+		message.Sanitize()
 	}
 }
 
@@ -73,7 +84,18 @@ type MessageUpdateRequest struct {
 }
 
 func (req *MessageUpdateRequest) Sanitize() {
-	req.FlowSources = usedFlowSources(&req.Data, req.FlowSources)
+	// Remove unused flow sources
+	newFlowSources := make(map[string]flow.FlowData, len(req.FlowSources))
+	for _, row := range req.Data.Components {
+		for _, comp := range row.Components {
+			flow, ok := req.FlowSources[comp.FlowSourceID]
+			if ok {
+				newFlowSources[comp.FlowSourceID] = flow
+			}
+		}
+	}
+
+	req.FlowSources = newFlowSources
 }
 
 func (req MessageUpdateRequest) Validate() error {
@@ -147,16 +169,4 @@ func MessageInstanceToWire(instance *model.MessageInstance) *MessageInstance {
 		CreatedAt:        instance.CreatedAt,
 		UpdatedAt:        instance.UpdatedAt,
 	}
-}
-
-// usedFlowSources drops flow sources that no component in the message references.
-func usedFlowSources(data *message.MessageData, flowSources map[string]flow.FlowData) map[string]flow.FlowData {
-	res := make(map[string]flow.FlowData, len(flowSources))
-	data.EachComponent(func(c *message.ComponentData) error {
-		if flow, ok := flowSources[c.FlowSourceID]; ok {
-			res[c.FlowSourceID] = flow
-		}
-		return nil
-	})
-	return res
 }

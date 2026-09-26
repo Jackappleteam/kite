@@ -33,15 +33,10 @@ import {
   SelectValue,
 } from "../ui/select";
 import { getNodeId } from "@/lib/flow/nodes";
-import { EventTypeScheduleCron } from "@/lib/types/flow.gen";
-import ScheduleCronPreview, {
-  ScheduleCronHelp,
-} from "../common/ScheduleCronPreview";
 
 interface FormFields {
   source: string;
   type: string;
-  cron: string;
   description: string;
 }
 
@@ -60,12 +55,9 @@ export default function EventListenerCreateDialog({
     defaultValues: {
       source: "discord",
       type: "",
-      cron: "",
       description: "",
     },
   });
-
-  const source = form.watch("source");
 
   function onSubmit(data: FormFields) {
     if (createMutation.isPending) return;
@@ -73,11 +65,7 @@ export default function EventListenerCreateDialog({
     createMutation.mutate(
       {
         source: data.source,
-        flow_source: getInitialFlowData(
-          data.source === "schedule" ? EventTypeScheduleCron : data.type,
-          data.description,
-          data.cron
-        ),
+        flow_source: getInitialFlowData(data.type, data.description),
         enabled: true,
       },
       {
@@ -146,67 +134,46 @@ export default function EventListenerCreateDialog({
                     </FormControl>
                     <SelectContent>
                       <SelectItem value="discord">Discord</SelectItem>
-                      <SelectItem value="schedule">Schedule</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            {source === "schedule" ? (
-              <FormField
-                control={form.control}
-                name="cron"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Schedule</FormLabel>
-                    <FormDescription>
-                      <ScheduleCronHelp />
-                    </FormDescription>
+            <FormField
+              control={form.control}
+              name="type"
+              render={({ field }) => (
+                <FormItem className="min-w-48">
+                  <FormLabel>Event</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <Input type="text" placeholder="*/5 * * * *" {...field} />
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select event type" />
+                      </SelectTrigger>
                     </FormControl>
-                    <FormMessage />
-                    <ScheduleCronPreview cron={field.value} />
-                  </FormItem>
-                )}
-              />
-            ) : (
-              <FormField
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <FormItem className="min-w-48">
-                    <FormLabel>Event</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select event type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="message_create">
-                          Message Create
-                        </SelectItem>
-                        <SelectItem value="message_delete">
-                          Message Delete
-                        </SelectItem>
-                        <SelectItem value="message_update">
-                          Message Update
-                        </SelectItem>
-                        <SelectItem value="guild_member_add">
-                          Server Member Add
-                        </SelectItem>
-                        <SelectItem value="guild_member_remove">
-                          Server Member Remove
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+                    <SelectContent>
+                      <SelectItem value="message_create">
+                        Message Create
+                      </SelectItem>
+                      <SelectItem value="message_delete">
+                        Message Delete
+                      </SelectItem>
+                      <SelectItem value="message_update">
+                        Message Update
+                      </SelectItem>
+                      <SelectItem value="guild_member_add">
+                        Server Member Add
+                      </SelectItem>
+                      <SelectItem value="guild_member_remove">
+                        Server Member Remove
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <DialogFooter>
               <LoadingButton type="submit" loading={createMutation.isPending}>
                 Create event listener
@@ -219,17 +186,13 @@ export default function EventListenerCreateDialog({
   );
 }
 
-function getInitialFlowData(type: string, description: string, cron?: string) {
+function getInitialFlowData(type: string, description: string) {
   return {
     nodes: [
       {
         id: getNodeId(),
         position: { x: 0, y: 0 },
-        data: {
-          event_type: type,
-          event_schedule_cron: cron || undefined,
-          description,
-        },
+        data: { event_type: type, description },
         type: "entry_event",
       },
     ],
