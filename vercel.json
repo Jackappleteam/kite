@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "kite-docs": {
+      "root": "kite-docs",
+      "framework": "docusaurus-2"
+    },
+    "kite-service": {
+      "root": "kite-service",
+      "runtime": "go"
+    },
+    "kite-support": {
+      "root": "kite-support",
+      "runtime": "go"
+    },
+    "kite-web": {
+      "root": "kite-web",
+      "framework": "nextjs"
+    }
+  },
+  "rewrites": []
+}
