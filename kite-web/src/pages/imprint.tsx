@@ -3,7 +3,11 @@ import env from "@/lib/env/client";
 
 export default function ImprintPage() {
   return (
-    <LegalPageLayout title="Legal Notice" heading="Legal Notice (Impressum)">
+    <LegalPageLayout
+      noindex
+      title="Legal Notice"
+      heading="Legal Notice (Impressum)"
+    >
       <p>Information according to &sect; 5 DDG:</p>
       <p>
         Merlin Fuchs

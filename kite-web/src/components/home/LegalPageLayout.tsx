@@ -28,12 +28,14 @@ export default function LegalPageLayout({
   title,
   heading,
   updatedAt,
+  noindex,
   children,
 }: {
   title: string;
   /** Shown instead of the title on the page, when it should differ. */
   heading?: string;
   updatedAt?: Date;
+  noindex?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -98,7 +100,7 @@ export default function LegalPageLayout({
   return (
     // Not HomeLayout, as its overflow-hidden wrapper would break the sticky
     // table of contents.
-    <BaseLayout title={title} noindex>
+    <BaseLayout title={title} noindex={noindex}>
       <div className="flex min-h-[100dvh] flex-col overflow-x-clip">
         <HomeNavbar />
         <section className="border-b bg-muted/30">

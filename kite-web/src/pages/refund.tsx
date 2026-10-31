@@ -4,7 +4,7 @@ import Link from "next/link";
 
 export default function RefundPolicyPage() {
   return (
-    <LegalPageLayout title="Refund Policy" updatedAt={legalUpdatedAt}>
+    <LegalPageLayout noindex title="Refund Policy" updatedAt={legalUpdatedAt}>
       <p>
         Kite&apos;s paid plans are sold by Lemon Squeezy as merchant of record,
         as described in our <Link href="/terms#plans">Terms of Service</Link>.

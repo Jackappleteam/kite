@@ -4,7 +4,11 @@ import Link from "next/link";
 
 export default function TermsOfServicePage() {
   return (
-    <LegalPageLayout title="Terms of Service" updatedAt={legalUpdatedAt}>
+    <LegalPageLayout
+      noindex
+      title="Terms of Service"
+      updatedAt={legalUpdatedAt}
+    >
       <p>
         These terms are an agreement between you and Merlin Fuchs, Alte Str. 5,
         04229 Leipzig, Germany (&quot;Kite&quot;, &quot;we&quot;,

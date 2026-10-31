@@ -4,7 +4,7 @@ import Link from "next/link";
 
 export default function PrivacyPolicyPage() {
   return (
-    <LegalPageLayout title="Privacy Policy" updatedAt={legalUpdatedAt}>
+    <LegalPageLayout noindex title="Privacy Policy" updatedAt={legalUpdatedAt}>
       <p>
         Kite is a no-code Discord bot builder. This policy explains which
         personal data we process when you use kite.onl and when Kite runs a bot,
