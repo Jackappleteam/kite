@@ -35,6 +35,8 @@ func TestAction(t *testing.T) {
 		{"timeout changed", entry(24, ch("communication_disabled_until", `"2029-01-01T00:00:00+00:00"`, `"2030-01-01T00:00:00+00:00"`)), ActionMemberTimeoutAdd},
 		{"timeout removed", entry(24, ch("communication_disabled_until", `"2030-01-01T00:00:00+00:00"`, "null")), ActionMemberTimeoutRemove},
 		{"timeout removed without new value", entry(24, ch("communication_disabled_until", `"2030-01-01T00:00:00+00:00"`, "")), ActionMemberTimeoutRemove},
+		{"channels reordered", entry(16), "channel_position_update"},
+		{"roles reordered", entry(33), "role_position_update"},
 		{"unknown", entry(250), "250"},
 	}
 

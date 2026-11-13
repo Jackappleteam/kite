@@ -93,12 +93,14 @@ These are the actions the Event Filter can pick, and the value `{{audit_log.acti
 | `channel_overwrite_create`                    | Channel Permission Added       | Channel               |
 | `channel_overwrite_update`                    | Channel Permission Updated     | Channel               |
 | `channel_overwrite_delete`                    | Channel Permission Removed     | Channel               |
+| `channel_position_update`                     | Channels Reordered             | None                  |
 | `thread_create`                               | Thread Created                 | Channel               |
 | `thread_update`                               | Thread Updated                 | Channel               |
 | `thread_delete`                               | Thread Deleted                 | Channel               |
 | `role_create`                                 | Role Created                   | Role                  |
 | `role_update`                                 | Role Updated                   | Role                  |
 | `role_delete`                                 | Role Deleted                   | Role                  |
+| `role_position_update`                        | Roles Reordered                | None                  |
 | `guild_update`                                | Server Updated                 | ID                    |
 | `invite_create`                               | Invite Created                 | None                  |
 | `invite_delete`                               | Invite Deleted                 | None                  |
